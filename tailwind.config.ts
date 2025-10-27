@@ -1,17 +1,15 @@
-import { wedgesTW } from "@lemonsqueezy/wedges";
 import tailwindTypography from "@tailwindcss/typography";
 import type { Config } from "tailwindcss";
 
 const config: Config = {
   content: [
-    "./src/**/*.{js,ts,jsx,tsx,mdx}",
-    "node_modules/@lemonsqueezy/wedges/dist/**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{js,ts,jsx,tsx,mdx}"
   ],
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-geist-sans)"],
-        mono: ["var(--font-geist-mono)"],
+        sans: ["var(--font-sans)"],
+        mono: ["var(--font-mono)"],
       },
       container: {
         center: true,
@@ -28,7 +26,7 @@ const config: Config = {
     },
   },
   darkMode: "class",
-  plugins: [wedgesTW(), tailwindTypography()],
+  plugins: [tailwindTypography()],
 };
 
 export default config;

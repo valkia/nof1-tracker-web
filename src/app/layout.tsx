@@ -1,11 +1,24 @@
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
 import type { Metadata } from "next";
+import { Inter, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Lemon Squeezy Next.js Billing App Template",
+  title: "Nof1 Tracker Web",
+  description: "Next.js dashboard for monitoring Nof1 AI trading agents.",
 };
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const robotoMono = Roboto_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  weight: ["400", "500", "700"],
+  display: "swap",
+});
 
 export default function RootLayout({
   children,
@@ -15,7 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full touch-manipulation">
       <body
-        className={`${GeistSans.variable} ${GeistMono.variable} min-h-full font-sans`}
+        className={`${inter.variable} ${robotoMono.variable} min-h-full bg-surface-50 font-sans text-surface-600`}
       >
         {children}
       </body>

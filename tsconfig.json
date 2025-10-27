@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "esnext"],
+    "target": "ES2020",
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -14,6 +15,10 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "incremental": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false,
+    "downlevelIteration": true,
+    "types": ["node", "jest"],
     "plugins": [
       {
         "name": "next"
