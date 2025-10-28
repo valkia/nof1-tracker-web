@@ -171,7 +171,7 @@ export function DashboardTabs({
             />
           </div>
           <AgentProfitChart
-            agents={filteredAgents}
+            profitRange={profitRange}
             rangeDescription={rangeMeta.description}
             totalProfit={summaryForRange.netUnrealized}
           />

@@ -19,9 +19,9 @@ interface ProfitRangeMeta {
 
 const PROFIT_RANGE_META: Record<ProfitRange, ProfitRangeMeta> = {
   total: { label: "总", description: "全部历史" },
-  month: { label: "月", description: "近 30 天" },
-  week: { label: "周", description: "近 7 天" },
-  day: { label: "日", description: "近 24 小时" },
+  month: { label: "月", description: "近30天" },
+  week: { label: "周", description: "近7天" },
+  day: { label: "日", description: "近24小时" },
 };
 
 export function summarizeAgents(
