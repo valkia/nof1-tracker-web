@@ -1,13 +1,5 @@
 import { TrendingDown, TrendingUp } from "lucide-react";
-
-export interface AgentDashboardSummary {
-  agentCount: number;
-  positionsCount: number;
-  totalExposure: number;
-  totalMargin: number;
-  netUnrealized: number;
-  averageConfidence: number | null;
-}
+import type { AgentDashboardSummary } from "@/types/agents";
 
 interface SummaryCardProps {
   label: string;
@@ -25,8 +17,14 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 
 export function AgentStatsSummary(props: {
   summary: AgentDashboardSummary;
+  rangeDescription?: string;
 }) {
-  const { summary } = props;
+  const { summary, rangeDescription } = props;
+
+  const netProfitDescription =
+    rangeDescription !== undefined
+      ? `所选 ${rangeDescription} 时间范围内的实时盈亏表现`
+      : "所有仓位的实时盈亏表现";
 
   const cards: SummaryCardProps[] = [
     {
@@ -47,7 +45,7 @@ export function AgentStatsSummary(props: {
     {
       label: "总浮动盈亏",
       value: formatSignedCurrency(summary.netUnrealized),
-      description: "所有仓位的实时盈亏表现",
+      description: netProfitDescription,
       highlight: summary.netUnrealized >= 0 ? "positive" : "negative",
     },
   ];

@@ -1,29 +1,31 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   usePathname,
   useRouter,
   useSearchParams,
 } from "next/navigation";
-import type { AgentDashboardSummary } from "@/components/agents/agent-stats";
 import { AgentStatsSummary } from "@/components/agents/agent-stats";
 import { AgentGrid } from "@/components/agents/agent-grid";
 import { AgentProfitChart } from "@/components/agents/agent-profit-chart";
 import type { AgentOverview } from "@/server/nof1/service";
 import type { TrackerSettings } from "@/server/nof1/settings";
+import type { ProfitRange } from "@/types/agents";
+import {
+  filterAgentsByRange,
+  getProfitRangeMeta,
+  getProfitRangeOptions,
+  summarizeAgents,
+} from "@/utils/agent-overview";
+
+const PROFIT_RANGE_OPTIONS = getProfitRangeOptions();
 
 export type DashboardTabId = "overview" | "trading" | "settings";
 
 interface DashboardTabsProps {
   agents: AgentOverview[];
-  summary: AgentDashboardSummary;
   initialSettings: TrackerSettings;
   activeTab: DashboardTabId;
 }
@@ -78,7 +80,6 @@ const SettingsForm = dynamic<LazySettingsFormProps>(
 
 export function DashboardTabs({
   agents,
-  summary,
   initialSettings,
   activeTab,
 }: DashboardTabsProps) {
@@ -90,6 +91,8 @@ export function DashboardTabs({
     useState<DashboardTabId>(activeTab);
   const [settings, setSettings] =
     useState<TrackerSettings>(initialSettings);
+  const [profitRange, setProfitRange] =
+    useState<ProfitRange>("total");
 
   useEffect(() => {
     setCurrentTab(activeTab);
@@ -104,6 +107,21 @@ export function DashboardTabs({
     });
     return Array.from(unique).sort();
   }, [agents]);
+
+  const filteredAgents = useMemo(
+    () => filterAgentsByRange(agents, profitRange),
+    [agents, profitRange],
+  );
+
+  const rangeMeta = useMemo(
+    () => getProfitRangeMeta(profitRange),
+    [profitRange],
+  );
+
+  const summaryForRange = useMemo(
+    () => summarizeAgents(filteredAgents),
+    [filteredAgents],
+  );
 
   const navigateToTab = useCallback(
     (nextTab: DashboardTabId, options?: { replace?: boolean }) => {
@@ -132,8 +150,31 @@ export function DashboardTabs({
     <section className="space-y-6">
       {currentTab === "overview" ? (
         <div className="space-y-8">
-          <AgentStatsSummary summary={summary} />
-          <AgentProfitChart agents={agents} />
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  盈利维度
+                </p>
+                <h2 className="text-lg font-semibold text-surface-900">
+                  {rangeMeta.description} 盈利统计
+                </h2>
+              </div>
+              <ProfitRangeFilter
+                value={profitRange}
+                onChange={(next) => setProfitRange(next)}
+              />
+            </div>
+            <AgentStatsSummary
+              summary={summaryForRange}
+              rangeDescription={rangeMeta.description}
+            />
+          </div>
+          <AgentProfitChart
+            agents={filteredAgents}
+            rangeDescription={rangeMeta.description}
+            totalProfit={summaryForRange.netUnrealized}
+          />
           <div id="agents">
             <AgentGrid agents={agents} />
           </div>
@@ -180,6 +221,36 @@ function PanelPlaceholder({
         <div className="h-4 w-5/6 rounded-full bg-surface-100" />
         <div className="h-4 w-2/3 rounded-full bg-surface-100" />
       </div>
+    </div>
+  );
+}
+
+function ProfitRangeFilter({
+  value,
+  onChange,
+}: {
+  value: ProfitRange;
+  onChange: (next: ProfitRange) => void;
+}) {
+  return (
+    <div className="inline-flex items-center gap-1 rounded-full border border-surface-200 bg-white p-1 shadow-sm">
+      {PROFIT_RANGE_OPTIONS.map((option) => {
+        const isActive = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+              isActive
+                ? "bg-primary text-white shadow-sm"
+                : "text-surface-500 hover:bg-primary/10 hover:text-primary"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

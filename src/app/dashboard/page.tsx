@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import type { AgentDashboardSummary } from "@/components/agents/agent-stats";
 import { fetchAgentOverviews } from "@/server/nof1/service";
 import { getTrackerSettings } from "@/server/nof1/settings";
 import {
@@ -24,7 +23,6 @@ export default async function DashboardPage({
     fetchAgentOverviews(),
     getTrackerSettings(),
   ]);
-  const summary = buildSummary(agents);
   const activeTab = resolveTab(searchParams?.tab);
 
   return (
@@ -55,7 +53,6 @@ export default async function DashboardPage({
 
         <DashboardTabs
           agents={agents}
-          summary={summary}
           initialSettings={settings}
           activeTab={activeTab}
         />
@@ -69,46 +66,4 @@ function resolveTab(tabValue: string | undefined): DashboardTabId {
     return tabValue;
   }
   return "overview";
-}
-
-function buildSummary(
-  agents: Awaited<ReturnType<typeof fetchAgentOverviews>>,
-): AgentDashboardSummary {
-  const totals = agents.reduce(
-    (acc, agent) => {
-      acc.agentCount += 1;
-      acc.positionsCount += agent.stats.positionsCount;
-      acc.totalExposure += agent.stats.totalExposure;
-      acc.totalMargin += agent.stats.totalMargin;
-      acc.netUnrealized += agent.stats.netUnrealizedPnl;
-
-      if (agent.stats.averageConfidence !== null) {
-        acc.confidenceSum += agent.stats.averageConfidence;
-        acc.confidenceSamples += 1;
-      }
-
-      return acc;
-    },
-    {
-      agentCount: 0,
-      positionsCount: 0,
-      totalExposure: 0,
-      totalMargin: 0,
-      netUnrealized: 0,
-      confidenceSum: 0,
-      confidenceSamples: 0,
-    },
-  );
-
-  return {
-    agentCount: totals.agentCount,
-    positionsCount: totals.positionsCount,
-    totalExposure: totals.totalExposure,
-    totalMargin: totals.totalMargin,
-    netUnrealized: totals.netUnrealized,
-    averageConfidence:
-      totals.confidenceSamples > 0
-        ? totals.confidenceSum / totals.confidenceSamples
-        : null,
-  };
 }
