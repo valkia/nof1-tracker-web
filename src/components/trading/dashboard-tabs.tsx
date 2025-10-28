@@ -15,6 +15,7 @@ import {
 import type { AgentDashboardSummary } from "@/components/agents/agent-stats";
 import { AgentStatsSummary } from "@/components/agents/agent-stats";
 import { AgentGrid } from "@/components/agents/agent-grid";
+import { AgentProfitChart } from "@/components/agents/agent-profit-chart";
 import type { AgentOverview } from "@/server/nof1/service";
 import type { TrackerSettings } from "@/server/nof1/settings";
 
@@ -132,6 +133,7 @@ export function DashboardTabs({
       {currentTab === "overview" ? (
         <div className="space-y-8">
           <AgentStatsSummary summary={summary} />
+          <AgentProfitChart agents={agents} />
           <div id="agents">
             <AgentGrid agents={agents} />
           </div>

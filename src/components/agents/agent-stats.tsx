@@ -16,24 +16,33 @@ interface SummaryCardProps {
   highlight?: "positive" | "negative";
 }
 
-export function AgentStatsSummary(props: { summary: AgentDashboardSummary }) {
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+export function AgentStatsSummary(props: {
+  summary: AgentDashboardSummary;
+}) {
   const { summary } = props;
 
   const cards: SummaryCardProps[] = [
     {
       label: "活跃 Agent",
       value: summary.agentCount.toString(),
-      description: `当前同步的 AI 交易模型，${summary.positionsCount} 个持仓`,
+      description: `当前同步 ${summary.positionsCount} 个持仓数据`,
     },
     {
       label: "总保证金",
-      value: `$${summary.totalMargin.toFixed(2)}`,
+      value: formatCurrency(summary.totalMargin),
       description: "累计投入保证金（含逐仓与全仓）",
     },
     {
       label: "总名义敞口",
-      value: `$${summary.totalExposure.toFixed(2)}`,
-      description: "按当前价格统计的仓位规模",
+      value: formatCurrency(summary.totalExposure),
+      description: "按最新价格统计的仓位规模",
     },
     {
       label: "总浮动盈亏",
@@ -50,7 +59,9 @@ export function AgentStatsSummary(props: { summary: AgentDashboardSummary }) {
       ))}
 
       <div className="rounded-3xl border border-surface-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-surface-500">平均信心</p>
+        <p className="text-sm font-semibold text-surface-500">
+          平均信心
+        </p>
         <p className="pt-2 text-2xl font-semibold text-surface-900">
           {summary.averageConfidence !== null
             ? `${summary.averageConfidence.toFixed(1)} / 100`
@@ -72,10 +83,14 @@ function SummaryCard({
 }: SummaryCardProps) {
   return (
     <div className="rounded-3xl border border-surface-200 bg-white p-6 shadow-sm">
-      <p className="text-sm font-semibold text-surface-500">{label}</p>
+      <p className="text-sm font-semibold text-surface-500">
+        {label}
+      </p>
 
       <div className="flex items-end gap-2 pt-2">
-        <p className="text-2xl font-semibold text-surface-900">{value}</p>
+        <p className="text-2xl font-semibold text-surface-900">
+          {value}
+        </p>
 
         {highlight ? (
           <span
@@ -95,12 +110,18 @@ function SummaryCard({
         ) : null}
       </div>
 
-      <p className="pt-1 text-xs text-surface-400">{description}</p>
+      <p className="pt-1 text-xs text-surface-400">
+        {description}
+      </p>
     </div>
   );
 }
 
 function formatSignedCurrency(value: number): string {
-  const sign = value >= 0 ? "+" : "-";
-  return `${sign}$${Math.abs(value).toFixed(2)}`;
+  const formatted = currencyFormatter.format(Math.abs(value));
+  return `${value >= 0 ? "+" : "-"}${formatted}`;
+}
+
+function formatCurrency(value: number): string {
+  return currencyFormatter.format(value);
 }

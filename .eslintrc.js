@@ -5,7 +5,7 @@ const project = resolve(__dirname, "tsconfig.json");
 module.exports = {
   root: true,
   extends: [
-    "next/core-web-vitals",
+    "plugin:@next/next/core-web-vitals",
     "plugin:@typescript-eslint/recommended",
     "plugin:tailwindcss/recommended",
     "prettier",

@@ -39,7 +39,7 @@ export default async function DashboardPage({
               跟单控制中心
             </h1>
             <p className="text-sm text-surface-500">
-              基于 Nof1 官方 API 的最新 Agent 持仓与风险信号。
+              基于 Nof1 官方 API 的最新 Agent 持仓与风险信号总览
             </p>
           </div>
 
@@ -71,7 +71,9 @@ function resolveTab(tabValue: string | undefined): DashboardTabId {
   return "overview";
 }
 
-function buildSummary(agents: Awaited<ReturnType<typeof fetchAgentOverviews>>): AgentDashboardSummary {
+function buildSummary(
+  agents: Awaited<ReturnType<typeof fetchAgentOverviews>>,
+): AgentDashboardSummary {
   const totals = agents.reduce(
     (acc, agent) => {
       acc.agentCount += 1;
