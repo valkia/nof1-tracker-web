@@ -1,4 +1,10 @@
-import { Bot, LayoutDashboard, ListTree } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  LayoutDashboard,
+  ListTree,
+  Settings,
+} from "lucide-react";
 import Link from "next/link";
 import { SidebarNav } from "./sidebar-nav";
 
@@ -8,7 +14,7 @@ export function Sidebar() {
       <Link
         href="/dashboard"
         className="flex items-center gap-3 text-primary"
-        aria-label="返回控制台"
+        aria-label="返回控制中心"
       >
         <span className="inline-flex size-10 items-center justify-center rounded-2xl bg-primary/10">
           <Bot size={22} />
@@ -21,14 +27,28 @@ export function Sidebar() {
         </div>
       </Link>
 
-      <SidebarNav aria-label="Primary navigation" className="space-y-2">
+      <SidebarNav aria-label="仪表盘导航" className="space-y-2">
         <SidebarNav.Item
           icon={<LayoutDashboard size={16} />}
           href="/dashboard"
         >
-          总览
+          交易概览
         </SidebarNav.Item>
+        <SidebarNav.Item
+          icon={<Activity size={16} />}
+          href="/dashboard?tab=trading"
+        >
+          交易执行
+        </SidebarNav.Item>
+        <SidebarNav.Item
+          icon={<Settings size={16} />}
+          href="/dashboard?tab=settings"
+        >
+          系统设置
+        </SidebarNav.Item>
+      </SidebarNav>
 
+      <SidebarNav aria-label="数据导航" className="space-y-2">
         <SidebarNav.Item icon={<ListTree size={16} />} href="/dashboard#agents">
           Agent 列表
         </SidebarNav.Item>

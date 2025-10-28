@@ -1,0 +1,15 @@
+{
+  "priceTolerance": 1,
+  "symbolTolerances": [],
+  "totalMargin": 50,
+  "profitTarget": 25,
+  "autoRefollow": false,
+  "marginType": "CROSSED",
+  "riskOnly": true,
+  "interval": 30,
+  "telegram": {
+    "enabled": false,
+    "token": "",
+    "chatId": ""
+  }
+}

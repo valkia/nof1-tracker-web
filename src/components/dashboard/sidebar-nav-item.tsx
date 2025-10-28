@@ -9,21 +9,72 @@ import {
   type ReactSVGElement,
   forwardRef,
 } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 type SidebarNavItemElement = ElementRef<typeof Link>;
 type SidebarNavItemProps = ComponentPropsWithoutRef<typeof Link> & {
   icon?: ReactElement<ReactSVGElement>;
+  isActive?: boolean;
 };
 
 export const SidebarNavItem = forwardRef<
   SidebarNavItemElement,
   SidebarNavItemProps
 >((props, ref) => {
-  const { icon, className, children, href, ...otherProps } = props;
+  const { icon, className, children, href, isActive, ...otherProps } = props;
   const pathname = usePathname();
-  const isCurrentPage = pathname === href;
+  const searchParams = useSearchParams();
+
+  let isCurrentPage = false;
+
+  if (typeof isActive === "boolean") {
+    isCurrentPage = isActive;
+  } else {
+    const hrefString =
+      typeof href === "string"
+        ? href
+        : href && "pathname" in href && href.pathname
+          ? [
+              href.pathname,
+              href.query
+                ? new URLSearchParams(
+                    Object.entries(href.query).reduce<Record<string, string>>(
+                      (acc, [key, value]) => {
+                        if (typeof value === "undefined") {
+                          return acc;
+                        }
+                        acc[key] = Array.isArray(value)
+                          ? value.join(",")
+                          : String(value);
+                        return acc;
+                      },
+                      {},
+                    ),
+                  ).toString()
+                : null,
+            ]
+              .filter(Boolean)
+              .join("?")
+          : "";
+
+    if (hrefString) {
+      const [targetPathWithQuery] = hrefString.split("#");
+      const [targetPath, targetQuery] = targetPathWithQuery.split("?");
+
+      const matchesPath = pathname === targetPath;
+
+      let matchesQuery = true;
+      if (targetQuery) {
+        const targetSearch = new URLSearchParams(targetQuery);
+        matchesQuery = Array.from(targetSearch.entries()).every(
+          ([key, value]) => searchParams.get(key) === value,
+        );
+      }
+
+      isCurrentPage = matchesPath && matchesQuery;
+    }
+  }
 
   return (
     <li>

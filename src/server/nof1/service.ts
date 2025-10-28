@@ -1,5 +1,6 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
 import { cache } from "react";
 import { ApiClient } from "@/server/core/services/api-client";
 import {
@@ -40,19 +41,31 @@ export interface AgentOverview {
 
 const getClient = cache(() => new ApiClient());
 
-/**
- * Fetch the latest trading snapshot for every tracked agent.
- */
-export async function fetchAgentOverviews(): Promise<AgentOverview[]> {
+async function loadAgentOverviews(): Promise<AgentOverview[]> {
   const client = getClient();
   const response = await client.getAccountTotals();
-
   return response.accountTotals.map(mapAgentAccountToOverview);
 }
 
-/**
- * Fetch a single agent with full position details.
- */
+const getCachedAgentOverviews = unstable_cache(
+  loadAgentOverviews,
+  ["agent-overviews"],
+  {
+    revalidate: 5,
+    tags: ["agent-overviews"],
+  },
+);
+
+export async function fetchAgentOverviews(options?: {
+  force?: boolean;
+}): Promise<AgentOverview[]> {
+  if (options?.force) {
+    return loadAgentOverviews();
+  }
+
+  return getCachedAgentOverviews();
+}
+
 export async function fetchAgentDetail(
   agentId: string,
 ): Promise<AgentOverview | null> {

@@ -1,18 +1,31 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import { AgentGrid } from "@/components/agents/agent-grid";
-import {
-  AgentStatsSummary,
-  type AgentDashboardSummary,
-} from "@/components/agents/agent-stats";
+import type { AgentDashboardSummary } from "@/components/agents/agent-stats";
 import { fetchAgentOverviews } from "@/server/nof1/service";
+import { getTrackerSettings } from "@/server/nof1/settings";
+import {
+  DashboardTabs,
+  type DashboardTabId,
+} from "@/components/trading/dashboard-tabs";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function DashboardPage() {
-  const agents = await fetchAgentOverviews();
+interface DashboardPageProps {
+  searchParams?: {
+    tab?: string;
+  };
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: DashboardPageProps) {
+  const [agents, settings] = await Promise.all([
+    fetchAgentOverviews(),
+    getTrackerSettings(),
+  ]);
   const summary = buildSummary(agents);
+  const activeTab = resolveTab(searchParams?.tab);
 
   return (
     <div className="h-full overflow-y-auto bg-surface-50">
@@ -23,10 +36,10 @@ export default async function DashboardPage() {
               实时数据
             </p>
             <h1 className="text-3xl font-semibold text-surface-900">
-              跟单控制台
+              跟单控制中心
             </h1>
             <p className="text-sm text-surface-500">
-              来自 Nof1 官方 API 的最新 Agent 持仓与风险信号。
+              基于 Nof1 官方 API 的最新 Agent 持仓与风险信号。
             </p>
           </div>
 
@@ -40,11 +53,22 @@ export default async function DashboardPage() {
           </Link>
         </header>
 
-        <AgentStatsSummary summary={summary} />
-        <AgentGrid agents={agents} />
+        <DashboardTabs
+          agents={agents}
+          summary={summary}
+          initialSettings={settings}
+          activeTab={activeTab}
+        />
       </div>
     </div>
   );
+}
+
+function resolveTab(tabValue: string | undefined): DashboardTabId {
+  if (tabValue === "trading" || tabValue === "settings") {
+    return tabValue;
+  }
+  return "overview";
 }
 
 function buildSummary(agents: Awaited<ReturnType<typeof fetchAgentOverviews>>): AgentDashboardSummary {

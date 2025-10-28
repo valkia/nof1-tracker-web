@@ -3,7 +3,7 @@ import { fetchAgentOverviews } from "@/server/nof1/service";
 
 export async function GET() {
   try {
-    const agents = await fetchAgentOverviews();
+    const agents = await fetchAgentOverviews({ force: true });
     return NextResponse.json({ data: agents });
   } catch (error) {
     console.error("Failed to load agents", error);
