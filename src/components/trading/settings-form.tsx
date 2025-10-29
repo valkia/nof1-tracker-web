@@ -455,7 +455,7 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
           <button
             type="submit"
             disabled={saving}
-            className="inline-flex items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-surface-300"
+            className="inline-flex items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-surface-300 disabled:text-surface-600"
           >
             {saving ? "保存中..." : "保存设置"}
           </button>

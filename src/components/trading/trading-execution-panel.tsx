@@ -392,7 +392,7 @@ export function TradingExecutionPanel({
                 <button
                   type="submit"
                   disabled={isSubmitting || !hasBinanceCredentials || autoExecuteEnabled}
-                  className="inline-flex items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-surface-300"
+                  className="inline-flex items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-surface-300 disabled:text-surface-600"
                 >
                   {isSubmitting ? "执行中..." : "执行跟单"}
                 </button>
@@ -401,7 +401,7 @@ export function TradingExecutionPanel({
                   type="button"
                   onClick={toggleAutoExecute}
                   disabled={!hasBinanceCredentials || isSubmitting}
-                  className={`inline-flex items-center justify-center rounded-2xl px-6 py-3 text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:bg-surface-300 ${
+                  className={`inline-flex items-center justify-center rounded-2xl px-6 py-3 text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:bg-surface-300 disabled:text-surface-600 ${
                     autoExecuteEnabled
                       ? "bg-amber-500 text-white hover:bg-amber-600"
                       : "bg-emerald-500 text-white hover:bg-emerald-600"
