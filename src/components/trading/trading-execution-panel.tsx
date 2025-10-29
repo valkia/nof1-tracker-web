@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import type { AgentOverview } from "@/server/nof1/service";
 import type { TrackerSettings } from "@/server/nof1/settings";
@@ -38,6 +38,13 @@ export function TradingExecutionPanel({
   const [riskOnly, setRiskOnly] = useState<boolean>(settings.riskOnly);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [result, setResult] = useState<FollowExecutionResponse | null>(null);
+  
+  // 定时轮询状态
+  const [autoExecuteEnabled, setAutoExecuteEnabled] = useState<boolean>(false);
+  const [countdown, setCountdown] = useState<number>(0);
+  const [executionCount, setExecutionCount] = useState<number>(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
 
   const agentOptions = useMemo(
     () =>
@@ -64,9 +71,23 @@ export function TradingExecutionPanel({
     setRiskOnly(settings.riskOnly);
   }, [settings]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  // 停止自动执行
+  const stopAutoExecute = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setAutoExecuteEnabled(false);
+    setCountdown(0);
+    setExecutionCount(0);
+  }, []);
 
+  // 执行跟单的核心逻辑
+  const executeFollow = useCallback(async () => {
     if (!selectedAgent) {
       toast.error("请选择要跟随的 Agent");
       return;
@@ -116,14 +137,98 @@ export function TradingExecutionPanel({
       }
 
       setResult(data.data as FollowExecutionResponse);
-      toast.success("跟单执行完成");
+      setExecutionCount((prev) => prev + 1);
+      
+      if (autoExecuteEnabled) {
+        toast.success(`自动跟单执行完成 (第 ${executionCount + 1} 次)`);
+      } else {
+        toast.success("跟单执行完成");
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "无法执行跟单操作";
       toast.error(message);
+      
+      // 如果是自动执行模式且失败，停止自动执行
+      if (autoExecuteEnabled) {
+        stopAutoExecute();
+      }
     } finally {
       setIsSubmitting(false);
     }
+  }, [
+    selectedAgent,
+    hasBinanceCredentials,
+    priceTolerance,
+    totalMargin,
+    profitTarget,
+    autoRefollow,
+    marginType,
+    riskOnly,
+    autoExecuteEnabled,
+    executionCount,
+    onOpenSettings,
+    stopAutoExecute,
+  ]);
+
+  // 启动自动执行
+  const startAutoExecute = useCallback(() => {
+    if (!selectedAgent || !hasBinanceCredentials) {
+      toast.error("请先选择 Agent 并配置 Binance API");
+      return;
+    }
+
+    setAutoExecuteEnabled(true);
+    setExecutionCount(0);
+    setCountdown(settings.interval);
+
+    // 立即执行一次
+    executeFollow();
+
+    // 设置定时器
+    timerRef.current = setInterval(() => {
+      executeFollow();
+      setCountdown(settings.interval);
+    }, settings.interval * 1000);
+
+    // 设置倒计时
+    countdownRef.current = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          return settings.interval;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    toast.success(`已启动定时执行，每 ${settings.interval} 秒执行一次`);
+  }, [selectedAgent, hasBinanceCredentials, settings.interval, executeFollow]);
+
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+      }
+    };
+  }, []);
+
+  // 切换自动执行状态
+  const toggleAutoExecute = useCallback(() => {
+    if (autoExecuteEnabled) {
+      stopAutoExecute();
+      toast.info("已停止定时执行");
+    } else {
+      startAutoExecute();
+    }
+  }, [autoExecuteEnabled, startAutoExecute, stopAutoExecute]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    executeFollow();
   }
 
   const hasAgents = agentOptions.length > 0;
@@ -282,18 +387,55 @@ export function TradingExecutionPanel({
           </FormField>
 
           <div className="sm:col-span-2 lg:col-span-3">
-            <button
-              type="submit"
-              disabled={isSubmitting || !hasBinanceCredentials}
-              className="inline-flex w-full items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-surface-300"
-            >
-              {isSubmitting ? "执行中..." : "执行跟单"}
-            </button>
-            <p className="pt-2 text-center text-xs text-surface-400">
-              {hasBinanceCredentials
-                ? `当前以${settings.binance.testnet ? "测试网" : "正式环境"}凭证执行。`
-                : "请先在系统设置中完成 Binance API 凭证配置。"}
-            </p>
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !hasBinanceCredentials || autoExecuteEnabled}
+                  className="inline-flex items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-surface-300"
+                >
+                  {isSubmitting ? "执行中..." : "执行跟单"}
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={toggleAutoExecute}
+                  disabled={!hasBinanceCredentials || isSubmitting}
+                  className={`inline-flex items-center justify-center rounded-2xl px-6 py-3 text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:bg-surface-300 ${
+                    autoExecuteEnabled
+                      ? "bg-amber-500 text-white hover:bg-amber-600"
+                      : "bg-emerald-500 text-white hover:bg-emerald-600"
+                  }`}
+                >
+                  {autoExecuteEnabled ? "⏸ 停止定时执行" : "▶ 启动定时执行"}
+                </button>
+              </div>
+              
+              {autoExecuteEnabled && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-500"></span>
+                      <span className="font-semibold text-emerald-700">
+                        定时执行中
+                      </span>
+                    </div>
+                    <div className="text-xs text-emerald-600">
+                      已执行 {executionCount} 次 · 下次执行倒计时: {countdown}s
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-emerald-600">
+                    每 {settings.interval} 秒自动执行一次跟单操作
+                  </p>
+                </div>
+              )}
+              
+              <p className="text-center text-xs text-surface-400">
+                {hasBinanceCredentials
+                  ? `当前以${settings.binance.testnet ? "测试网" : "正式环境"}凭证执行。`
+                  : "请先在系统设置中完成 Binance API 凭证配置。"}
+              </p>
+            </div>
           </div>
         </form>
       )}
