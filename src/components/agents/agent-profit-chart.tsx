@@ -91,6 +91,8 @@ export function AgentProfitChart({
         if (data.length === 0) continue;
 
         const lastPoint = data[data.length - 1];
+        if (!('value' in lastPoint)) continue;
+
         const coordinate = lineSeries.priceToCoordinate(lastPoint.value);
         const timeCoordinate = chart
           .timeScale()

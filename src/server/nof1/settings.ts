@@ -249,7 +249,7 @@ function mergeSettings(
     telegram,
     binance,
   };
-
+}
 
 export async function getTrackerSettings(): Promise<TrackerSettings> {
   await ensureSettingsFile();
@@ -296,14 +296,14 @@ export function settingsToCommandOptions(
   overrides?: Partial<CommandOptions>,
 ): CommandOptions {
   const base: CommandOptions = {
-  priceTolerance: settings.priceTolerance,
-  totalMargin: settings.totalMargin,
-  profit: settings.profitTarget ?? undefined,
-  autoRefollow: settings.autoRefollow,
-  marginType: settings.marginType,
-  maxLeverage: settings.maxLeverage,
-  riskOnly: settings.riskOnly,
-  interval: settings.interval.toString(),
+    priceTolerance: settings.priceTolerance,
+    totalMargin: settings.totalMargin,
+    profit: settings.profitTarget ?? undefined,
+    autoRefollow: settings.autoRefollow,
+    marginType: settings.marginType,
+    maxLeverage: settings.maxLeverage,
+    riskOnly: settings.riskOnly,
+    interval: settings.interval.toString(),
 };
 
   return {

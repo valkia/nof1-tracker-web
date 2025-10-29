@@ -366,7 +366,7 @@ function extractAccountEquity(account: AgentAccount): number | null {
   ];
 
   for (const key of candidateKeys) {
-    const rawValue = (account as Record<string, unknown>)[key as string];
+    const rawValue = (account as unknown as Record<string, unknown>)[key as string];
     if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
       return rawValue;
     }
