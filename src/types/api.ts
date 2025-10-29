@@ -35,6 +35,10 @@ export interface AgentAccount {
   model_id: string;
   since_inception_hourly_marker: number;
   positions: Record<string, Position>;
+  dollar_equity?: number;
+  total_equity?: number;
+  realized_pnl?: number;
+  total_unrealized_pnl?: number;
 }
 
 /**

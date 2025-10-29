@@ -4,11 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ColorType,
-  LineSeries,
+  CandlestickSeries,
   createChart,
   type IChartApi,
   type ISeriesApi,
-  type LineData,
+  type CandlestickData,
   type UTCTimestamp,
   type Time,
   type BusinessDay,
@@ -18,6 +18,7 @@ import type {
   AgentProfitSeriesPayload,
   ProfitRange,
 } from "@/types/agents";
+import type { AgentProfitPoint } from "@/types/agents";
 
 interface AgentProfitChartProps {
   profitRange: ProfitRange;
@@ -50,7 +51,7 @@ export function AgentProfitChart({
 }: AgentProfitChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesMapRef = useRef<Map<string, ISeriesApi<"Line">>>(
+  const seriesMapRef = useRef<Map<string, ISeriesApi<"Candlestick">>>(
     new Map(),
   );
 
@@ -86,33 +87,65 @@ export function AgentProfitChart({
         color: string;
       }> = [];
 
+      // console.log('Updating endpoint labels...', {
+      //   seriesCount: seriesMapRef.current.size,
+      //   seriesData: Array.from(seriesMapRef.current.keys())
+      // });
+
       for (const [modelId, lineSeries] of seriesMapRef.current.entries()) {
         const data = lineSeries.data();
+        // console.log(`Processing model ${modelId}:`, {
+        //   dataLength: data.length,
+        //   lastPoint: data.length > 0 ? data[data.length - 1] : null
+        // });
+
         if (data.length === 0) continue;
 
         const lastPoint = data[data.length - 1];
-        if (!('value' in lastPoint)) continue;
+        if (!('close' in lastPoint)) continue;
 
-        const coordinate = lineSeries.priceToCoordinate(lastPoint.value);
+        const coordinate = lineSeries.priceToCoordinate(lastPoint.close);
         const timeCoordinate = chart
           .timeScale()
           .timeToCoordinate(lastPoint.time as UTCTimestamp);
+
+        // console.log(`Coordinate calculation for ${modelId}:`, {
+        //   value: lastPoint.close,
+        //   time: lastPoint.time,
+        //   coordinate,
+        //   timeCoordinate
+        // });
 
         if (
           coordinate !== null &&
           timeCoordinate !== null &&
           timeCoordinate !== undefined
         ) {
+          // 确保标签在容器内显示
+          const containerWidth = chart.options().width || 800;
+          const containerHeight = 500;
+
+          // 调整位置，确保标签在可见区域内
+          const adjustedX = Math.min(timeCoordinate, containerWidth - 200); // 留出标签宽度空间
+          const adjustedY = Math.max(30, Math.min(coordinate, containerHeight - 30)); // 避免超出边界
+
+          // console.log(`Position adjustment for ${modelId}:`, {
+            //   original: { x: timeCoordinate, y: coordinate },
+            //   adjusted: { x: adjustedX, y: adjustedY },
+            //   containerSize: { width: containerWidth, height: containerHeight }
+            // });
+
           labels.push({
             modelId,
-            x: timeCoordinate,
-            y: coordinate,
-            value: lastPoint.value,
+            x: adjustedX,
+            y: adjustedY,
+            value: lastPoint.close,
             color: colorForAgent(modelId),
           });
         }
       }
 
+      // console.log('Final labels:', labels);
       setEndPointLabels(labels);
     },
     [],
@@ -125,7 +158,7 @@ export function AgentProfitChart({
     }
 
     const chart = createChart(container, {
-      height: 320,
+      height: 500,
       width: container.clientWidth,
       layout: {
         background: { type: ColorType.Solid, color: "#0f172a" },
@@ -168,7 +201,7 @@ export function AgentProfitChart({
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width } = entry.contentRect;
-        chart.resize(width, 320);
+        chart.resize(width, 500);
         requestAnimationFrame(updateEndPointLabels);
       }
     });
@@ -206,7 +239,7 @@ export function AgentProfitChart({
 
         if (!response.ok) {
           const message =
-            payload.error ?? "无法加载盈亏走势数据";
+            payload.error ?? "无法加载总敞口走势数据";
           throw new Error(message);
         }
 
@@ -229,7 +262,7 @@ export function AgentProfitChart({
         const message =
           err instanceof Error
             ? err.message
-            : "无法加载盈亏走势数据";
+            : "无法加载总敞口走势数据";
         if (!cancelled) {
           setError(message);
           setSeriesData([]);
@@ -268,23 +301,20 @@ export function AgentProfitChart({
     }
 
     seriesData.forEach((series) => {
-      let lineSeries = seriesMapRef.current.get(series.modelId);
-      if (!lineSeries) {
-        lineSeries = chart.addSeries(LineSeries, {
-          color: colorForAgent(series.modelId),
-          lineWidth: 2,
-          crosshairMarkerVisible: true,
-          priceLineVisible: false,
+      let candlestickSeries = seriesMapRef.current.get(series.modelId);
+      if (!candlestickSeries) {
+        candlestickSeries = chart.addSeries(CandlestickSeries, {
+          upColor: colorForAgent(series.modelId),
+          downColor: colorForAgent(series.modelId),
+          borderVisible: true,
+          wickUpColor: colorForAgent(series.modelId),
+          wickDownColor: colorForAgent(series.modelId),
         });
-        seriesMapRef.current.set(series.modelId, lineSeries);
+        seriesMapRef.current.set(series.modelId, candlestickSeries);
       }
 
-      const lineData: LineData[] = series.points.map((point) => ({
-        time: point.time as UTCTimestamp,
-        value: Number(point.value.toFixed(2)),
-      }));
-
-      lineSeries.setData(lineData);
+      const candlestickData: CandlestickData[] = convertToCandlestickData(series.points);
+      candlestickSeries.setData(candlestickData);
     });
 
     if (seriesData.length > 0) {
@@ -302,8 +332,75 @@ export function AgentProfitChart({
     requestAnimationFrame(updateEndPointLabels);
   }, [seriesData, rangeBounds, updateEndPointLabels]);
 
+  // 将折线数据转换为K线数据
+  const convertToCandlestickData = (points: AgentProfitPoint[]): CandlestickData[] => {
+    if (points.length === 0) return [];
+
+    const sortedPoints = points.sort((a, b) => a.time - b.time);
+    const candlestickData: CandlestickData[] = [];
+
+    for (let i = 0; i < sortedPoints.length; i++) {
+      const currentPoint = sortedPoints[i];
+      const value = Number(currentPoint.value.toFixed(2));
+
+      // 为单个数据点创建OHLC数据
+      // 开盘价和收盘价使用相同值，最高最低价也使用相同值
+      // 这样会显示为一条横线，但保留了K线的视觉效果
+      const candlestick: CandlestickData = {
+        time: currentPoint.time as UTCTimestamp,
+        open: value,
+        high: value,
+        low: value,
+        close: value,
+      };
+
+      // 如果有多个数据点，可以创建更真实的K线效果
+      if (i > 0) {
+        const prevPoint = sortedPoints[i - 1];
+        const prevValue = Number(prevPoint.value.toFixed(2));
+
+        // 设置开盘价为前一个点的收盘价
+        candlestick.open = prevValue;
+
+        // 根据涨跌设置高低价
+        if (value > prevValue) {
+          // 上涨
+          candlestick.high = value;
+          candlestick.low = prevValue;
+        } else if (value < prevValue) {
+          // 下跌
+          candlestick.high = prevValue;
+          candlestick.low = value;
+        } else {
+          // 持平
+          candlestick.high = value + (value * 0.001); // 添加0.1%的波动
+          candlestick.low = value - (value * 0.001);
+        }
+      } else if (i < sortedPoints.length - 1) {
+        // 对于第一个点，如果还有后续点，可以预估下一个点的趋势
+        const nextPoint = sortedPoints[i + 1];
+        const nextValue = Number(nextPoint.value.toFixed(2));
+
+        if (nextValue > value) {
+          candlestick.high = nextValue;
+          candlestick.low = value;
+        } else if (nextValue < value) {
+          candlestick.high = value;
+          candlestick.low = nextValue;
+        } else {
+          candlestick.high = value + (value * 0.001);
+          candlestick.low = value - (value * 0.001);
+        }
+      }
+
+      candlestickData.push(candlestick);
+    }
+
+    return candlestickData;
+  };
+
   const aggregatedData = useMemo(
-    () => mergeSeries(seriesData),
+    () => mergeSeriesForCandlestick(seriesData),
     [seriesData],
   );
   const stats = useMemo(
@@ -322,15 +419,15 @@ export function AgentProfitChart({
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-            盈利走势
+            总敞口走势
           </p>
           <h2 className="text-xl font-semibold text-surface-900">
-            {rangeDescription} Agent 盈亏对比
+            {rangeDescription} Agent 敞口对比
           </h2>
         </div>
         <div className="flex items-baseline gap-2 rounded-2xl bg-surface-50 px-4 py-2 text-right">
           <span className="text-xs font-medium text-surface-400">
-            Total floating P&amp;L
+            Total Current Exposure
           </span>
           <span className="text-lg font-semibold text-surface-900">
             {formatCurrency(totalEquity)}
@@ -339,11 +436,23 @@ export function AgentProfitChart({
       </header>
 
       <div className="overflow-hidden rounded-2xl border border-surface-100 bg-surface-950/90">
-        <div className="relative h-[320px] w-full">
+        <div className="relative h-[500px] w-full">
           <div ref={containerRef} className="absolute inset-0" />
+          {endPointLabels.length === 0 && seriesData.length > 0 && (
+            <div className="absolute top-4 left-4 text-xs text-yellow-400 bg-black/50 px-2 py-1 rounded">
+              调试：有 {seriesData.length} 个series数据但无标签
+            </div>
+          )}
           {endPointLabels.map((label, index) => {
             // 避免标签重叠，为每个标签添加垂直偏移
             const verticalOffset = index * 24;
+            // console.log(`Rendering label ${index}:`, {
+            //   modelId: label.modelId,
+            //   x: label.x,
+            //   y: label.y,
+            //   finalTop: Math.max(4, label.y - 12 + verticalOffset),
+            //   finalLeft: label.x + 10
+            // });
             return (
               <div
                 key={label.modelId}
@@ -354,11 +463,12 @@ export function AgentProfitChart({
                   borderLeft: `3px solid ${label.color}`,
                   maxWidth: "180px",
                   whiteSpace: "nowrap",
+                  zIndex: 10,
                 }}
               >
                 <span style={{ color: label.color }}>{label.modelId}</span>
                 <span className="text-[9px] text-slate-300">
-                  {formatSignedCurrency(label.value)}
+                  {formatCurrency(label.value)}
                 </span>
               </div>
             );
@@ -366,7 +476,7 @@ export function AgentProfitChart({
         </div>
         {loading ? (
           <p className="py-4 text-center text-xs text-surface-400">
-            正在加载盈亏走势数据…
+            正在加载总敞口走势数据…
           </p>
         ) : null}
         {error ? (
@@ -376,37 +486,37 @@ export function AgentProfitChart({
         ) : null}
         {showEmptyState ? (
           <p className="py-4 text-center text-xs text-surface-400">
-            当前筛选条件下暂无可绘制的盈亏数据，请稍后再试。
+            当前筛选条件下暂无可绘制的总敞口数据，请稍后再试。
           </p>
         ) : null}
       </div>
 
       <footer className="grid grid-cols-1 gap-3 text-xs text-surface-500 sm:grid-cols-3">
         <StatCard
-          label="最新点"
+          label="最新敞口"
           value={
             stats.latest
-              ? `${formatSignedCurrency(stats.latest.value)} · ${formatTimestamp(
+              ? `${formatCurrency(stats.latest.close)} · ${formatTimestamp(
                   stats.latest.time as UTCTimestamp,
                 )}`
               : "--"
           }
         />
         <StatCard
-          label="最高盈利"
+          label="最高敞口"
           value={
             stats.highest
-              ? `${formatSignedCurrency(stats.highest.value)} · ${formatTimestamp(
+              ? `${formatCurrency(stats.highest.close)} · ${formatTimestamp(
                   stats.highest.time as UTCTimestamp,
                 )}`
               : "--"
           }
         />
         <StatCard
-          label="最低盈利"
+          label="最低敞口"
           value={
             stats.lowest
-              ? `${formatSignedCurrency(stats.lowest.value)} · ${formatTimestamp(
+              ? `${formatCurrency(stats.lowest.close)} · ${formatTimestamp(
                   stats.lowest.time as UTCTimestamp,
                 )}`
               : "--"
@@ -417,9 +527,9 @@ export function AgentProfitChart({
   );
 }
 
-function mergeSeries(
+function mergeSeriesForCandlestick(
   series: AgentProfitSeries[],
-): LineData[] {
+): CandlestickData[] {
   const buckets = new Map<number, number>();
 
   for (const entry of series) {
@@ -431,16 +541,20 @@ function mergeSeries(
 
   return Array.from(buckets.entries())
     .sort(([a], [b]) => a - b)
-    .map(
-      ([time, value]) =>
-        ({
-          time: time as UTCTimestamp,
-          value: Number(value.toFixed(2)),
-        }) satisfies LineData,
-    );
+    .map(([time, value]) => {
+      const numValue = Number(value.toFixed(2));
+      return {
+        time: time as UTCTimestamp,
+        open: numValue,
+        high: numValue,
+        low: numValue,
+        close: numValue,
+      } satisfies CandlestickData;
+    });
 }
 
-function computeStats(data: LineData[]) {
+
+function computeStats(data: CandlestickData[]) {
   if (data.length === 0) {
     return {
       latest: null,
@@ -453,10 +567,10 @@ function computeStats(data: LineData[]) {
   let lowest = data[0];
 
   for (const point of data) {
-    if (point.value > highest.value) {
+    if (point.close > highest.close) {
       highest = point;
     }
-    if (point.value < lowest.value) {
+    if (point.close < lowest.close) {
       lowest = point;
     }
   }

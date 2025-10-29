@@ -127,14 +127,15 @@ export async function fetchAgentProfitSeries(
       );
 
     const points = sorted
-      .map((account) => ({
-        time: markerToUnixTimestamp(
-          account.since_inception_hourly_marker,
-        ),
-        value: Number(
-          computeTotalEquity(account).toFixed(2),
-        ),
-      }))
+      .map((account) => {
+        const equity = extractAccountEquity(account) ?? computeTotalExposure(account);
+        return {
+          time: markerToUnixTimestamp(
+            account.since_inception_hourly_marker,
+          ),
+          value: Number(equity.toFixed(2)),
+        };
+      })
       .filter((point) =>
         cutoff === null ? true : point.time * 1000 >= cutoff,
       );
@@ -355,8 +356,21 @@ function computeTotalEquity(account: AgentAccount): number {
   return totalMargin + netUnrealized;
 }
 
+function computeTotalExposure(account: AgentAccount): number {
+  const positions = Object.values(account.positions || {});
+  let totalExposure = 0;
+
+  for (const position of positions) {
+    const notional = Math.abs(position.quantity) * position.current_price;
+    totalExposure += notional;
+  }
+
+  return totalExposure;
+}
+
 function extractAccountEquity(account: AgentAccount): number | null {
   const candidateKeys: string[] = [
+    "dollar_equity",
     "total_equity",
     "account_total_equity",
     "account_total_value",

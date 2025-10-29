@@ -9,9 +9,19 @@
       "side": "BUY",
       "quantity": 0.006,
       "price": 112185
+    },
+    {
+      "entryOid": 216099884703,
+      "symbol": "BTC",
+      "agent": "qwen3-max",
+      "timestamp": 1761759458759,
+      "orderId": "804729261377",
+      "side": "BUY",
+      "quantity": 0.0017970905104635595,
+      "price": 111291
     }
   ],
   "profitExits": [],
-  "lastUpdated": 1761715855881,
+  "lastUpdated": 1761759458759,
   "createdAt": 1761715854380
 }
