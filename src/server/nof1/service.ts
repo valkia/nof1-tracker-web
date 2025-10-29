@@ -166,20 +166,21 @@ export async function fetchAgentProfitSeries(
     }
   }
 
-  const defaultStart =
-    startMarker !== undefined
-      ? markerToUnixTimestamp(startMarker)
-      : earliestPoint ?? markerToUnixTimestamp(currentMarker);
-
-  const rangeStart =
-    range === "total"
-      ? earliestPoint ?? defaultStart
-      : Math.min(
-          defaultStart,
-          earliestPoint ?? markerToUnixTimestamp(currentMarker),
-        );
-  const rangeEnd =
-    latestPoint ?? markerToUnixTimestamp(currentMarker);
+  // 使用当前时间作为结束点，而不是最新数据点
+  const nowTimestamp = markerToUnixTimestamp(currentMarker);
+  
+  let rangeStart: number;
+  let rangeEnd: number;
+  
+  if (range === "total") {
+    // total模式：从最早数据点到现在
+    rangeStart = earliestPoint ?? nowTimestamp;
+    rangeEnd = nowTimestamp;
+  } else {
+    // 其他模式：从今天往回推算指定时间范围
+    rangeEnd = nowTimestamp;
+    rangeStart = nowTimestamp - (RANGE_WINDOWS_MS[range] / 1000);
+  }
 
   return {
     range,

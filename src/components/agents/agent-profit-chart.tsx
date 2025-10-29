@@ -62,6 +62,59 @@ export function AgentProfitChart({
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [endPointLabels, setEndPointLabels] = useState<
+    Array<{
+      modelId: string;
+      x: number;
+      y: number;
+      value: number;
+      color: string;
+    }>
+  >([]);
+
+  // 统一的标签更新函数
+  const updateEndPointLabels = useMemo(
+    () => () => {
+      const chart = chartRef.current;
+      if (!chart) return;
+
+      const labels: Array<{
+        modelId: string;
+        x: number;
+        y: number;
+        value: number;
+        color: string;
+      }> = [];
+
+      for (const [modelId, lineSeries] of seriesMapRef.current.entries()) {
+        const data = lineSeries.data();
+        if (data.length === 0) continue;
+
+        const lastPoint = data[data.length - 1];
+        const coordinate = lineSeries.priceToCoordinate(lastPoint.value);
+        const timeCoordinate = chart
+          .timeScale()
+          .timeToCoordinate(lastPoint.time as UTCTimestamp);
+
+        if (
+          coordinate !== null &&
+          timeCoordinate !== null &&
+          timeCoordinate !== undefined
+        ) {
+          labels.push({
+            modelId,
+            x: timeCoordinate,
+            y: coordinate,
+            value: lastPoint.value,
+            color: colorForAgent(modelId),
+          });
+        }
+      }
+
+      setEndPointLabels(labels);
+    },
+    [],
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -114,10 +167,16 @@ export function AgentProfitChart({
       for (const entry of entries) {
         const { width } = entry.contentRect;
         chart.resize(width, 320);
+        requestAnimationFrame(updateEndPointLabels);
       }
     });
 
     resizeObserver.observe(container);
+
+    // 监听图表缩放和滚动事件
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      requestAnimationFrame(updateEndPointLabels);
+    });
 
     return () => {
       resizeObserver.disconnect();
@@ -128,7 +187,7 @@ export function AgentProfitChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, []);
+  }, [updateEndPointLabels]);
 
   useEffect(() => {
     let cancelled = false;
@@ -236,7 +295,10 @@ export function AgentProfitChart({
         chart.timeScale().fitContent();
       }
     }
-  }, [seriesData, rangeBounds]);
+
+    // 更新端点标签位置
+    requestAnimationFrame(updateEndPointLabels);
+  }, [seriesData, rangeBounds, updateEndPointLabels]);
 
   const aggregatedData = useMemo(
     () => mergeSeries(seriesData),
@@ -277,24 +339,28 @@ export function AgentProfitChart({
       <div className="overflow-hidden rounded-2xl border border-surface-100 bg-surface-950/90">
         <div className="relative h-[320px] w-full">
           <div ref={containerRef} className="absolute inset-0" />
-          {seriesData.length > 0 ? (
-            <div className="pointer-events-none absolute right-4 top-4 flex flex-col gap-2 rounded-2xl bg-slate-900/80 px-3 py-2 text-[11px] text-slate-200 shadow-lg backdrop-blur-sm">
-              {seriesData.map((series) => (
-                <span
-                  key={series.modelId}
-                  className="inline-flex items-center gap-2 font-medium"
-                >
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{
-                      backgroundColor: colorForAgent(series.modelId),
-                    }}
-                  />
-                  <span>{series.modelId}</span>
+          {endPointLabels.map((label, index) => {
+            // 避免标签重叠，为每个标签添加垂直偏移
+            const verticalOffset = index * 24;
+            return (
+              <div
+                key={label.modelId}
+                className="pointer-events-none absolute flex items-center gap-1.5 rounded-md bg-slate-900/95 px-2.5 py-1.5 text-[10px] font-semibold text-slate-100 shadow-xl backdrop-blur-sm transition-all"
+                style={{
+                  left: `${label.x + 10}px`,
+                  top: `${Math.max(4, label.y - 12 + verticalOffset)}px`,
+                  borderLeft: `3px solid ${label.color}`,
+                  maxWidth: "180px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span style={{ color: label.color }}>{label.modelId}</span>
+                <span className="text-[9px] text-slate-300">
+                  {formatSignedCurrency(label.value)}
                 </span>
-              ))}
-            </div>
-          ) : null}
+              </div>
+            );
+          })}
         </div>
         {loading ? (
           <p className="py-4 text-center text-xs text-surface-400">
