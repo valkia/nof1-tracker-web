@@ -1,0 +1,23 @@
+{
+    "priceTolerance":  1,
+    "symbolTolerances":  [
+
+                         ],
+    "totalMargin":  30,
+    "profitTarget":  null,
+    "autoRefollow":  false,
+    "marginType":  "CROSSED",
+    "riskOnly":  true,
+    "interval":  30,
+    "telegram":  {
+                     "enabled":  false,
+                     "token":  "",
+                     "chatId":  ""
+                 },
+    "binance":  {
+                    "apiKey":  "SUyvTd4xTfH8O5oOQXD6aWquHfcNsxOuhz7bg4Crm7N8JqLmWvBgsqhcWXp7mD3V",
+                    "apiSecret":  "Z6AnZt5q9I9OiM58H5C39v9uWxxQJKeGmuLU3vrspwFYeOIHZVLWmGTGnuci99Li",
+                    "testnet":  false
+                },
+    "maxLeverage":  20
+}
