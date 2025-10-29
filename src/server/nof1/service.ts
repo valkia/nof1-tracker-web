@@ -41,6 +41,7 @@ export interface AgentOverview {
     totalExposure: number;
     netUnrealizedPnl: number;
     totalMargin: number;
+    totalEquity: number;
     averageConfidence: number | null;
   };
 }
@@ -131,7 +132,7 @@ export async function fetchAgentProfitSeries(
           account.since_inception_hourly_marker,
         ),
         value: Number(
-          computeNetUnrealizedPnl(account).toFixed(2),
+          computeTotalEquity(account).toFixed(2),
         ),
       }))
       .filter((point) =>
@@ -208,6 +209,10 @@ function mapAgentAccountToOverview(account: AgentAccount): AgentOverview {
     },
   );
 
+  const totalEquity =
+    extractAccountEquity(account) ??
+    stats.totalMargin + stats.netUnrealizedPnl;
+
   return {
     id: account.id,
     modelId: account.model_id,
@@ -218,6 +223,7 @@ function mapAgentAccountToOverview(account: AgentAccount): AgentOverview {
       totalExposure: stats.totalExposure,
       netUnrealizedPnl: stats.netUnrealizedPnl,
       totalMargin: stats.totalMargin,
+      totalEquity,
       averageConfidence:
         stats.confidenceSamples.length > 0
           ? average(stats.confidenceSamples)
@@ -328,6 +334,53 @@ function computeNetUnrealizedPnl(account: AgentAccount): number {
     (total, position) => total + position.unrealized_pnl,
     0,
   );
+}
+
+function computeTotalEquity(account: AgentAccount): number {
+  const extracted = extractAccountEquity(account);
+  if (extracted !== null) {
+    return extracted;
+  }
+
+  const positions = Object.values(account.positions || {});
+  let totalMargin = 0;
+  let netUnrealized = 0;
+
+  for (const position of positions) {
+    totalMargin += position.margin ?? 0;
+    netUnrealized += position.unrealized_pnl ?? 0;
+  }
+
+  return totalMargin + netUnrealized;
+}
+
+function extractAccountEquity(account: AgentAccount): number | null {
+  const candidateKeys: string[] = [
+    "total_equity",
+    "account_total_equity",
+    "account_total_value",
+    "account_value",
+    "total_wallet_balance",
+    "totalWalletBalance",
+  ];
+
+  for (const key of candidateKeys) {
+    const rawValue = (account as Record<string, unknown>)[key as string];
+    if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+      return rawValue;
+    }
+    if (
+      typeof rawValue === "string" &&
+      rawValue.trim().length > 0
+    ) {
+      const parsed = Number.parseFloat(rawValue);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
 }
 
 function resolveStartMarker(

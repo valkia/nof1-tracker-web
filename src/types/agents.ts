@@ -3,6 +3,7 @@ export interface AgentDashboardSummary {
   positionsCount: number;
   totalExposure: number;
   totalMargin: number;
+  totalEquity: number;
   netUnrealized: number;
   averageConfidence: number | null;
 }
@@ -11,7 +12,7 @@ export type ProfitRange = "total" | "month" | "week" | "day";
 
 export interface AgentProfitPoint {
   time: number; // Unix timestamp in seconds
-  value: number;
+  value: number; // Represents total account equity
 }
 
 export interface AgentProfitSeries {

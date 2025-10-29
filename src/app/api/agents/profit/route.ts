@@ -25,9 +25,9 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
-    console.error("Failed to load agent profit series", error);
+    console.error("Failed to load agent equity series", error);
     return NextResponse.json(
-      { error: "Unable to load agent profit series" },
+      { error: "Unable to load agent equity series" },
       { status: 500 },
     );
   }

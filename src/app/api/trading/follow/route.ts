@@ -9,8 +9,10 @@ export async function POST(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to execute follow";
+    const isMissingCredentials =
+      message.includes("Binance API Key") || message.includes("BINANCE_API");
 
-    const status = message.includes("BINANCE_API")
+    const status = isMissingCredentials
       ? 412
       : message.includes("agentId")
         ? 400

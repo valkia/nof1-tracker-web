@@ -26,8 +26,10 @@ import type { CommandOptions } from "@/server/core/types/command";
 import {
   DATA_DIR,
   getTrackerSettings,
+  settingsToBinanceCredentials,
   settingsToCommandOptions,
   settingsToTradingConfig,
+  type BinanceCredentials,
   type TrackerSettings,
 } from "./settings";
 import {
@@ -109,25 +111,45 @@ export interface TradeHistoryResult {
 
 const TRADE_CACHE_DIR = path.join(DATA_DIR, "trade-cache");
 let tradeHistoryService: TradeHistoryService | null = null;
+let tradeHistoryCredentials: BinanceCredentials | null = null;
 
-function ensureBinanceCredentials(): { apiKey: string; apiSecret: string } {
-  const apiKey = process.env.BINANCE_API_KEY || "";
-  const apiSecret = process.env.BINANCE_API_SECRET || "";
-  if (!apiKey || !apiSecret) {
-    throw new Error("Missing BINANCE_API_KEY or BINANCE_API_SECRET");
+function assertBinanceCredentials(credentials: BinanceCredentials): void {
+  if (!credentials.apiKey || !credentials.apiSecret) {
+    throw new Error(
+      "缺少 Binance API Key 或 Secret，请先在系统设置中配置后再试",
+    );
   }
-  return { apiKey, apiSecret };
 }
 
 async function getTradeHistoryService(): Promise<TradeHistoryService> {
-  if (!tradeHistoryService) {
-    const { apiKey, apiSecret } = ensureBinanceCredentials();
-    await fs.ensureDir(TRADE_CACHE_DIR);
+  const settings = await getTrackerSettings();
+  const credentials = settingsToBinanceCredentials(settings);
+  assertBinanceCredentials(credentials);
+
+  const cacheDir = path.join(
+    TRADE_CACHE_DIR,
+    credentials.testnet ? "testnet" : "mainnet",
+  );
+
+  const changed =
+    !tradeHistoryCredentials ||
+    tradeHistoryCredentials.apiKey !== credentials.apiKey ||
+    tradeHistoryCredentials.apiSecret !== credentials.apiSecret ||
+    tradeHistoryCredentials.testnet !== credentials.testnet;
+
+  if (!tradeHistoryService || changed) {
+    await fs.ensureDir(cacheDir);
     tradeHistoryService = new TradeHistoryService(
-      new BinanceService(apiKey, apiSecret),
-      TRADE_CACHE_DIR,
+      new BinanceService(
+        credentials.apiKey,
+        credentials.apiSecret,
+        credentials.testnet,
+      ),
+      cacheDir,
     );
+    tradeHistoryCredentials = { ...credentials };
   }
+
   return tradeHistoryService;
 }
 
@@ -224,6 +246,8 @@ export async function executeFollowAgent(
   }
 
   const settings = await getTrackerSettings();
+  const credentials = settingsToBinanceCredentials(settings);
+  assertBinanceCredentials(credentials);
   const commandOptions = settingsToCommandOptions(settings, optionOverrides);
   const configManager = new ConfigManager();
 
@@ -232,16 +256,20 @@ export async function executeFollowAgent(
   const riskManager = new RiskManager(configManager);
 
   try {
-    analyzer = new ApiAnalyzer(configManager);
+    analyzer = new ApiAnalyzer(configManager, undefined, {
+      binanceApiKey: credentials.apiKey,
+      binanceApiSecret: credentials.apiSecret,
+      testnet: credentials.testnet,
+    });
 
     // Apply UI-configured tolerances on top of environment defaults
     configManager.reset();
     configManager.importConfig(settingsToTradingConfig(settings));
 
     tradingExecutor = new TradingExecutor(
-      undefined,
-      undefined,
-      undefined,
+      credentials.apiKey,
+      credentials.apiSecret,
+      credentials.testnet,
       configManager,
     );
 

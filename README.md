@@ -62,7 +62,7 @@ npm run dev
 `.env.example` 中提供了所有必填/可选项，主要包含：
 
 - `NOF1_API_BASE_URL`：Nof1 数据接口地址（默认 `https://nof1.ai/api`）。
-- `BINANCE_API_KEY` / `BINANCE_API_SECRET`：用于真实下单与收益分析（可选）。
+- `BINANCE_API_KEY` / `BINANCE_API_SECRET`：现已在控制台“系统设置”中配置，无需修改 `.env`
 - `BINANCE_TESTNET`：是否启用测试网。
 - `TELEGRAM_*`：告警通知配置（可选）。
 

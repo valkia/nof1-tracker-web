@@ -12,9 +12,10 @@ export interface CommandOptions {
   totalMargin?: number;
   force?: boolean;
   interval?: string;
-  profit?: number;        // ç›ˆåˆ©ç›®æ ‡ç™¾åˆ†æ¯” (e.g., 30 for 30%)
-  autoRefollow?: boolean; // è‡ªåŠ¨é‡æ–°è·Ÿå• (é»˜è®¤false)
-  marginType?: 'ISOLATED' | 'CROSSED'; // ä¿è¯é‡‘æ¨¡å¼: ISOLATED(é€ä»“) æˆ– CROSSED(å…¨ä»“), é»˜è®¤å…¨ä»“
+  profit?: number;        // Ó¯ÀûÄ¿±ê°Ù·Ö±È(e.g., 30 for 30%)
+  autoRefollow?: boolean; // ×Ô¶¯ÖØĞÂ¸úµ¥ (Ä¬ÈÏfalse)
+  marginType?: 'ISOLATED' | 'CROSSED'; // ±£Ö¤½ğÄ£Ê½: ISOLATED(Öğ²Ö) »ò CROSSED(È«²Ö), Ä¬ÈÏÈ«²Ö
+  maxLeverage?: number;   // ×î´óÔÊĞí¸Ü¸Ë
 }
 
 /**

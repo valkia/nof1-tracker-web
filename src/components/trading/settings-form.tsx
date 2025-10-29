@@ -44,6 +44,15 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
     settings.marginType,
   );
   const [riskOnly, setRiskOnly] = useState(settings.riskOnly);
+  const [binanceApiKey, setBinanceApiKey] = useState(
+    settings.binance.apiKey,
+  );
+  const [binanceApiSecret, setBinanceApiSecret] = useState(
+    settings.binance.apiSecret,
+  );
+  const [binanceTestnet, setBinanceTestnet] = useState(
+    settings.binance.testnet,
+  );
   const [interval, setInterval] = useState(settings.interval);
   const [telegramEnabled, setTelegramEnabled] = useState(
     settings.telegram.enabled,
@@ -68,6 +77,9 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
     setAutoRefollow(settings.autoRefollow);
     setMarginType(settings.marginType);
     setRiskOnly(settings.riskOnly);
+    setBinanceApiKey(settings.binance.apiKey);
+    setBinanceApiSecret(settings.binance.apiSecret);
+    setBinanceTestnet(settings.binance.testnet);
     setInterval(settings.interval);
     setTelegramEnabled(settings.telegram.enabled);
     setTelegramToken(settings.telegram.token);
@@ -146,6 +158,11 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
           token: telegramToken.trim(),
           chatId: telegramChatId.trim(),
         },
+        binance: {
+          apiKey: binanceApiKey.trim(),
+          apiSecret: binanceApiSecret.trim(),
+          testnet: binanceTestnet,
+        },
       };
 
       const response = await fetch("/api/settings", {
@@ -155,6 +172,7 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
         },
         body: JSON.stringify(payload),
       });
+
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || "设置保存失败");
@@ -175,11 +193,10 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
   return (
     <section className="rounded-3xl border border-surface-200 bg-white/90 p-6 shadow-sm">
       <header className="border-b border-surface-100 pb-4">
-        <h2 className="text-base font-semibold text-surface-900">
-          参数设置
-        </h2>
+        <h2 className="text-base font-semibold text-surface-900">参数设置</h2>
         <p className="text-xs text-surface-500">
-          这些设置会作为默认参数应用于所有跟单操作，可覆盖 CLI 中的环境变量配置。
+          这些设置会作为默认参数应用于所有跟单操作，同时负责存储 Binance API
+          凭证，不再依赖 .env。
         </p>
       </header>
 
@@ -286,6 +303,50 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
                 启用时仅执行风险评估
               </label>
             </Field>
+          </div>
+        </section>
+
+        <section className="space-y-4 rounded-2xl border border-surface-100 bg-surface-50/70 p-4">
+          <h3 className="text-sm font-semibold text-surface-800">Binance API</h3>
+          <p className="text-xs text-surface-500">
+            输入后即可替代环境变量配置，Secret 仅保存于本地数据目录，可在币安后台随时重置。
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="API Key">
+              <input
+                type="text"
+                value={binanceApiKey}
+                onChange={(event) => setBinanceApiKey(event.target.value)}
+                className="w-full rounded-xl border border-surface-200 bg-white px-4 py-3 text-sm text-surface-700 shadow-sm transition hover:border-primary/40 focus:border-primary focus:outline-none"
+                placeholder="示例：b123..."
+              />
+            </Field>
+            <Field label="API Secret">
+              <input
+                type="password"
+                value={binanceApiSecret}
+                onChange={(event) => setBinanceApiSecret(event.target.value)}
+                className="w-full rounded-xl border border-surface-200 bg-white px-4 py-3 text-sm text-surface-700 shadow-sm transition hover:border-primary/40 focus:border-primary focus:outline-none"
+                placeholder="仅用于签名请求"
+              />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field
+                label="使用测试网"
+                description="启用后改用 Binance Futures Testnet 接口"
+              >
+                <label className="inline-flex items-center gap-2 text-sm text-surface-600">
+                  <input
+                    type="checkbox"
+                    checked={binanceTestnet}
+                    onChange={(event) =>
+                      setBinanceTestnet(event.target.checked)
+                    }
+                  />
+                  连接 Binance 测试网环境
+                </label>
+              </Field>
+            </div>
           </div>
         </section>
 

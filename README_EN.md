@@ -63,7 +63,7 @@ Visit [http://localhost:3000](http://localhost:3000) to access the dashboard.
 `.env.example` documents the required configuration:
 
 - `NOF1_API_BASE_URL` – endpoint to pull agent data (defaults to `https://nof1.ai/api`).
-- `BINANCE_API_KEY` / `BINANCE_API_SECRET` – enables live trading and profit analytics (optional).
+- `BINANCE_API_KEY` / `BINANCE_API_SECRET` – now configured via the Dashboard “System Settings”, no `.env` changes required
 - `BINANCE_TESTNET` – toggle Binance testnet.
 - `TELEGRAM_*` – optional Telegram notifications.
 - `LOG_LEVEL` – control verbosity of the reused logging utilities.

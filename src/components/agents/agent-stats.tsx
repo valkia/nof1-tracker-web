@@ -1,4 +1,5 @@
 import { TrendingDown, TrendingUp } from "lucide-react";
+
 import type { AgentDashboardSummary } from "@/types/agents";
 
 interface SummaryCardProps {
@@ -23,27 +24,37 @@ export function AgentStatsSummary(props: {
 
   const netProfitDescription =
     rangeDescription !== undefined
-      ? `所选 ${rangeDescription} 时间范围内的实时盈亏表现`
-      : "所有仓位的实时盈亏表现";
+      ? `Floating P&L across positions during ${rangeDescription}`
+      : "Floating P&L across all tracked positions";
+
+  const equityDescription =
+    rangeDescription !== undefined
+      ? `Account equity during ${rangeDescription}`
+      : "Current total account equity";
 
   const cards: SummaryCardProps[] = [
     {
-      label: "活跃 Agent",
+      label: "Active Agents",
       value: summary.agentCount.toString(),
-      description: `当前同步 ${summary.positionsCount} 个持仓数据`,
+      description: "Agents currently syncing positions",
     },
     {
-      label: "总保证金",
+      label: "Total Margin",
       value: formatCurrency(summary.totalMargin),
-      description: "累计投入保证金（含逐仓与全仓）",
+      description: "Aggregate margin posted across modes",
     },
     {
-      label: "总名义敞口",
+      label: "Total Equity",
+      value: formatCurrency(summary.totalEquity),
+      description: equityDescription,
+    },
+    {
+      label: "Gross Exposure",
       value: formatCurrency(summary.totalExposure),
-      description: "按最新价格统计的仓位规模",
+      description: "Position size computed at latest prices",
     },
     {
-      label: "总浮动盈亏",
+      label: "Floating P&L",
       value: formatSignedCurrency(summary.netUnrealized),
       description: netProfitDescription,
       highlight: summary.netUnrealized >= 0 ? "positive" : "negative",
@@ -51,22 +62,20 @@ export function AgentStatsSummary(props: {
   ];
 
   return (
-    <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+    <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
       {cards.map((card) => (
         <SummaryCard key={card.label} {...card} />
       ))}
 
       <div className="rounded-3xl border border-surface-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-surface-500">
-          平均信心
-        </p>
+        <p className="text-sm font-semibold text-surface-500">Average Confidence</p>
         <p className="pt-2 text-2xl font-semibold text-surface-900">
           {summary.averageConfidence !== null
             ? `${summary.averageConfidence.toFixed(1)} / 100`
             : "--"}
         </p>
         <p className="pt-1 text-xs text-surface-400">
-          基于仓位的置信度评分
+          Position-weighted confidence score
         </p>
       </div>
     </section>
@@ -79,45 +88,42 @@ function SummaryCard({
   description,
   highlight,
 }: SummaryCardProps) {
+  const badgeClassName =
+    "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium";
+  const highlightClassName =
+    highlight === "positive"
+      ? "bg-emerald-50 text-emerald-600"
+      : highlight === "negative"
+        ? "bg-rose-50 text-rose-600"
+        : "";
+
   return (
     <div className="rounded-3xl border border-surface-200 bg-white p-6 shadow-sm">
-      <p className="text-sm font-semibold text-surface-500">
-        {label}
-      </p>
+      <p className="text-sm font-semibold text-surface-500">{label}</p>
 
       <div className="flex items-end gap-2 pt-2">
-        <p className="text-2xl font-semibold text-surface-900">
-          {value}
-        </p>
+        <p className="text-2xl font-semibold text-surface-900">{value}</p>
 
         {highlight ? (
-          <span
-            className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${
-              highlight === "positive"
-                ? "bg-emerald-100 text-emerald-600"
-                : "bg-rose-100 text-rose-600"
-            }`}
-          >
+          <span className={`${badgeClassName} ${highlightClassName}`}>
             {highlight === "positive" ? (
               <TrendingUp size={14} />
             ) : (
               <TrendingDown size={14} />
             )}
-            {highlight === "positive" ? "收益" : "亏损"}
+            {highlight === "positive" ? "Gain" : "Loss"}
           </span>
         ) : null}
       </div>
 
-      <p className="pt-1 text-xs text-surface-400">
-        {description}
-      </p>
+      <p className="pt-1 text-xs text-surface-400">{description}</p>
     </div>
   );
 }
 
 function formatSignedCurrency(value: number): string {
   const formatted = currencyFormatter.format(Math.abs(value));
-  return `${value >= 0 ? "+" : "-"}${formatted}`;
+  return value >= 0 ? `+${formatted}` : `-${formatted}`;
 }
 
 function formatCurrency(value: number): string {

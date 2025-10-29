@@ -48,6 +48,13 @@ export function TradingExecutionPanel({
     [agents],
   );
 
+  const hasBinanceCredentials =
+    settings.binance.apiKey.trim().length > 0 &&
+    settings.binance.apiSecret.trim().length > 0;
+  const binanceEnvironmentLabel = settings.binance.testnet
+    ? "Binance Testnet"
+    : "Binance Futures 主网";
+
   useEffect(() => {
     setPriceTolerance(settings.priceTolerance);
     setTotalMargin(settings.totalMargin);
@@ -62,6 +69,12 @@ export function TradingExecutionPanel({
 
     if (!selectedAgent) {
       toast.error("请选择要跟随的 Agent");
+      return;
+    }
+
+    if (!hasBinanceCredentials) {
+      toast.error("请先在系统设置中填写 Binance API Key 与 Secret");
+      onOpenSettings();
       return;
     }
 
@@ -97,7 +110,7 @@ export function TradingExecutionPanel({
       if (!response.ok) {
         const message =
           response.status === 412
-            ? "缺少 Binance API Key 或 Secret，请先在环境变量中配置后再执行交易。"
+            ? "缺少 Binance API Key 或 Secret，请先在系统设置中完成配置后再执行交易。"
             : data.error || "跟单执行失败";
         throw new Error(message);
       }
@@ -123,7 +136,10 @@ export function TradingExecutionPanel({
             执行 AI Agent 跟单
           </h2>
           <p className="text-xs text-surface-500">
-            设置跟单参数后，即可直接调用原生 Nof1 Trading Executor 完成下单与风险校验。
+            设置跟单参数后即可调用原生 Nof1 Trading Executor 完成下单与风险校验。
+          </p>
+          <p className="mt-1 text-[11px] text-surface-400">
+            当前环境：{binanceEnvironmentLabel}
           </p>
         </div>
 
@@ -135,6 +151,19 @@ export function TradingExecutionPanel({
           快速打开设置
         </button>
       </header>
+
+      {!hasBinanceCredentials ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700">
+          <p>尚未配置 Binance API Key 与 Secret，无法执行实际跟单。</p>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="inline-flex items-center rounded-full border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:border-amber-400 hover:bg-amber-100"
+          >
+            前往系统设置
+          </button>
+        </div>
+      ) : null}
 
       {!hasAgents ? (
         <p className="pt-6 text-sm text-surface-500">
@@ -255,13 +284,15 @@ export function TradingExecutionPanel({
           <div className="sm:col-span-2 lg:col-span-3">
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !hasBinanceCredentials}
               className="inline-flex w-full items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-surface-300"
             >
               {isSubmitting ? "执行中..." : "执行跟单"}
             </button>
             <p className="pt-2 text-center text-xs text-surface-400">
-              请确认已正确配置 Binance API Key，执行后将直接调用交易接口。
+              {hasBinanceCredentials
+                ? `当前以${settings.binance.testnet ? "测试网" : "正式环境"}凭证执行。`
+                : "请先在系统设置中完成 Binance API 凭证配置。"}
             </p>
           </div>
         </form>

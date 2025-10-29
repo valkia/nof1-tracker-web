@@ -22,7 +22,7 @@ import type {
 interface AgentProfitChartProps {
   profitRange: ProfitRange;
   rangeDescription: string;
-  totalProfit: number;
+  totalEquity: number;
 }
 
 const COLOR_PALETTE = [
@@ -46,7 +46,7 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 export function AgentProfitChart({
   profitRange,
   rangeDescription,
-  totalProfit,
+  totalEquity,
 }: AgentProfitChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -264,19 +264,12 @@ export function AgentProfitChart({
             {rangeDescription} Agent 盈亏对比
           </h2>
         </div>
-
         <div className="flex items-baseline gap-2 rounded-2xl bg-surface-50 px-4 py-2 text-right">
           <span className="text-xs font-medium text-surface-400">
-            总浮动盈亏
+            Total floating P&amp;L
           </span>
-          <span
-            className={`text-lg font-semibold ${
-              totalProfit >= 0
-                ? "text-emerald-600"
-                : "text-rose-600"
-            }`}
-          >
-            {formatSignedCurrency(totalProfit)}
+          <span className="text-lg font-semibold text-surface-900">
+            {formatCurrency(totalEquity)}
           </span>
         </div>
       </header>
@@ -429,6 +422,10 @@ function formatTickLabel(time: UTCTimestamp): string {
 function formatSignedCurrency(value: number): string {
   const formatted = currencyFormatter.format(Math.abs(value));
   return `${value >= 0 ? "+" : "-"}${formatted}`;
+}
+
+function formatCurrency(value: number): string {
+  return currencyFormatter.format(value);
 }
 
 function formatTimestamp(time: UTCTimestamp): string {

@@ -26,6 +26,12 @@ import {
   ConfigurationError
 } from "../utils/errors";
 
+interface AnalyzerOptions {
+  binanceApiKey?: string;
+  binanceApiSecret?: string;
+  testnet?: boolean;
+}
+
 // 重新导出类型以保持向后兼容性
 export type {
   Position,
@@ -48,7 +54,8 @@ export class ApiAnalyzer {
 
   constructor(
     baseUrlOrConfigManager?: string | ConfigManager,
-    apiClient?: ApiClient
+    apiClient?: ApiClient,
+    options: AnalyzerOptions = {},
   ) {
     // 支持向后兼容的构造函数签名
     if (typeof baseUrlOrConfigManager === 'string') {
@@ -62,14 +69,28 @@ export class ApiAnalyzer {
     }
 
     // 验证环境变量
-    this.validateEnvironment();
+    const resolvedApiKey =
+      options.binanceApiKey ?? process.env[ENV_VARS.BINANCE_API_KEY] ?? "";
+    const resolvedApiSecret =
+      options.binanceApiSecret ?? process.env[ENV_VARS.BINANCE_API_SECRET] ?? "";
+    const resolvedTestnet =
+      options.testnet ?? process.env.BINANCE_TESTNET === "true";
+    this.validateEnvironment({
+      apiKey: resolvedApiKey,
+      apiSecret: resolvedApiSecret,
+    });
 
     // 初始化服务
     this.binanceService = new BinanceService(
-      process.env[ENV_VARS.BINANCE_API_KEY] || "",
-      process.env[ENV_VARS.BINANCE_API_SECRET] || ""
+      resolvedApiKey,
+      resolvedApiSecret,
+      resolvedTestnet
     );
-    this.tradingExecutor = new TradingExecutor();
+    this.tradingExecutor = new TradingExecutor(
+      resolvedApiKey,
+      resolvedApiSecret,
+      resolvedTestnet
+    );
     this.orderHistoryManager = new OrderHistoryManager();
     const riskManager = new RiskManager(this.configManager);
     const capitalManager = new FuturesCapitalManager();
@@ -97,9 +118,13 @@ export class ApiAnalyzer {
   /**
    * 验证环境变量
    */
-  private validateEnvironment(): void {
+  private validateEnvironment(credentials?: { apiKey?: string; apiSecret?: string }): void {
     // 在测试环境中跳过环境变量验证
     if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
+    if (credentials?.apiKey && credentials?.apiSecret) {
       return;
     }
 

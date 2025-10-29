@@ -19,158 +19,185 @@ export interface CapitalAllocationResult {
 }
 
 export class FuturesCapitalManager {
-  private defaultTotalMargin: number = 10; // é»˜è®¤æ€»ä¿è¯é‡‘10 USDT
+  private defaultTotalMargin: number = 10; // Ä¬ÈÏ×Ü±£Ö¤½ğ10 USDT
 
   /**
-   * åˆ†é…ä¿è¯é‡‘åˆ°å„ä¸ªä»“ä½
-   * @param positions Agentçš„ä»“ä½ä¿¡æ¯
-   * @param totalMargin ç”¨æˆ·è®¾å®šçš„æ€»ä¿è¯é‡‘
-   * @param availableBalance å¯ç”¨ä½™é¢ï¼ˆå¯é€‰ï¼Œç”¨äºæ£€æŸ¥æ˜¯å¦æœ‰è¶³å¤Ÿèµ„é‡‘ï¼‰
+   * ·ÖÅä±£Ö¤½ğµ½¸÷¸ö²ÖÎ»
+   * @param positions AgentµÄ²ÖÎ»ĞÅÏ¢
+   * @param totalMargin ÓÃ»§Éè¶¨µÄ×Ü±£Ö¤½ğ
+   * @param availableBalance ¿ÉÓÃÓà¶î£¨¿ÉÑ¡£¬ÓÃÓÚ¼ì²éÊÇ·ñÓĞ×ã¹»×Ê½ğ£©
+   * @param maxLeverage ×î´óÔÊĞí¸Ü¸Ë£¨¿ÉÑ¡£¬ÓÃÓÚÑ¹Ëõ²ÖÎ»¸Ü¸Ë£©
    */
-  allocateMargin(positions: Position[], totalMargin?: number, availableBalance?: number): CapitalAllocationResult {
-    let totalMarginToUse = totalMargin || this.defaultTotalMargin;
+  allocateMargin(
+    positions: Position[],
+    totalMargin?: number,
+    availableBalance?: number,
+    maxLeverage?: number,
+  ): CapitalAllocationResult {
+    let totalMarginToUse = totalMargin ?? this.defaultTotalMargin;
 
-    // å¦‚æœæä¾›äº†å¯ç”¨ä½™é¢ï¼Œæ£€æŸ¥æ˜¯å¦è¶³å¤Ÿ
-    if (availableBalance && totalMarginToUse > availableBalance) {
-      console.warn(`âš ï¸ Insufficient available balance: Required ${totalMarginToUse.toFixed(2)} USDT, Available ${availableBalance.toFixed(2)} USDT`);
-      console.warn(`ğŸ’¡ Reducing allocation to available balance: ${availableBalance.toFixed(2)} USDT`);
-      // å¦‚æœæ²¡æœ‰è¶³å¤Ÿä½™é¢ï¼Œä½¿ç”¨å¯ç”¨ä½™é¢ä½œä¸ºæ€»ä¿è¯é‡‘
+    if (availableBalance !== undefined && availableBalance > 0 && totalMarginToUse > availableBalance) {
+      console.warn(`?? Insufficient available balance: Required ${totalMarginToUse.toFixed(2)} USDT, Available ${availableBalance.toFixed(2)} USDT`);
+      console.warn(`?? Reducing allocation to available balance: ${availableBalance.toFixed(2)} USDT`);
       totalMarginToUse = availableBalance;
     }
 
-    // è¿‡æ»¤å‡ºæœ‰æ•ˆçš„ä»“ä½ï¼ˆmargin > 0ï¼‰
-    const validPositions = positions.filter(p => p.margin > 0);
+    const prepared = positions
+      .map((position) => {
+        const absQuantity = Math.abs(position.quantity);
+        const price = position.current_price;
+        const baseLeverage = position.leverage > 0 ? position.leverage : 1;
+        const effectiveLeverage = maxLeverage && maxLeverage > 0
+          ? Math.min(baseLeverage, maxLeverage)
+          : baseLeverage;
 
-    if (validPositions.length === 0) {
+        const fallbackMargin =
+          absQuantity > 0 && price > 0 && baseLeverage > 0
+            ? (absQuantity * price) / baseLeverage
+            : 0;
+
+        const effectiveMargin = position.margin > 0 ? position.margin : fallbackMargin;
+
+        return {
+          position,
+          effectiveMargin,
+          effectiveLeverage,
+        };
+      })
+      .filter((entry) => entry.effectiveMargin > 0 && entry.position.current_price > 0);
+
+    if (prepared.length === 0) {
       return {
         totalOriginalMargin: 0,
         totalAllocatedMargin: 0,
         totalNotionalValue: 0,
-        allocations: []
+        allocations: [],
       };
     }
 
-    // è®¡ç®—æ€»åŸå§‹ä¿è¯é‡‘
-    const totalOriginalMargin = validPositions.reduce((sum, p) => sum + p.margin, 0);
+    const totalOriginalMargin = prepared.reduce((sum, entry) => sum + entry.effectiveMargin, 0);
+    if (totalOriginalMargin <= 0) {
+      return {
+        totalOriginalMargin: 0,
+        totalAllocatedMargin: 0,
+        totalNotionalValue: 0,
+        allocations: [],
+      };
+    }
 
-    // è®¡ç®—æ¯ä¸ªä»“ä½çš„åˆ†é…
-    const allocations: CapitalAllocation[] = validPositions.map(position => {
-      const allocationRatio = position.margin / totalOriginalMargin;
-      const allocatedMargin = totalMarginToUse * allocationRatio;
-      const notionalValue = allocatedMargin * position.leverage;
-      const adjustedQuantity = notionalValue / position.current_price;
+    const allocations: CapitalAllocation[] = prepared.map((entry) => {
+      const { position, effectiveMargin, effectiveLeverage } = entry;
+      const allocationRatio = effectiveMargin / totalOriginalMargin;
+      const targetMargin = totalMarginToUse * allocationRatio;
+      const rawNotional = targetMargin * effectiveLeverage;
+      const rawQuantity = rawNotional / position.current_price;
+
+      const roundedQuantity = this.roundQuantity(rawQuantity, position.symbol);
+      const safeQuantity = Math.max(0, Math.min(roundedQuantity, rawQuantity));
+      const notionalValue = safeQuantity * position.current_price;
+      const allocatedMargin = effectiveLeverage > 0 ? notionalValue / effectiveLeverage : 0;
       const side = position.quantity > 0 ? "BUY" : "SELL";
-
-      // å»æ‰å°æ•°éƒ¨åˆ†ï¼šç›´æ¥æˆªæ–­å°æ•°ï¼Œä¸å››èˆäº”å…¥
-      const roundedAllocatedMargin = Math.floor(allocatedMargin);
-      const roundedNotionalValue = Math.floor(notionalValue);
-      const roundedAdjustedQuantity = this.roundQuantity(adjustedQuantity, position.symbol);
 
       return {
         symbol: position.symbol,
-        originalMargin: position.margin,
-        allocatedMargin: roundedAllocatedMargin,
-        notionalValue: roundedNotionalValue,
-        adjustedQuantity: roundedAdjustedQuantity,
+        originalMargin: effectiveMargin,
+        allocatedMargin,
+        notionalValue,
+        adjustedQuantity: safeQuantity,
         allocationRatio,
-        leverage: position.leverage,
-        side
+        leverage: effectiveLeverage,
+        side,
       };
     });
 
-    // è®¡ç®—æ€»è®¡
-    const totalAllocatedMargin = allocations.reduce((sum, a) => sum + a.allocatedMargin, 0);
-    const totalNotionalValue = allocations.reduce((sum, a) => sum + a.notionalValue, 0);
+    const totalAllocatedMargin = allocations.reduce((sum, allocation) => sum + allocation.allocatedMargin, 0);
+    const totalNotionalValue = allocations.reduce((sum, allocation) => sum + allocation.notionalValue, 0);
 
     return {
       totalOriginalMargin,
       totalAllocatedMargin,
       totalNotionalValue,
-      allocations
+      allocations,
     };
   }
 
   /**
-   * è·å–é»˜è®¤æ€»ä¿è¯é‡‘
+   * »ñÈ¡Ä¬ÈÏ×Ü±£Ö¤½ğ
    */
   getDefaultTotalMargin(): number {
     return this.defaultTotalMargin;
   }
 
   /**
-   * è®¾ç½®é»˜è®¤æ€»ä¿è¯é‡‘
+   * ÉèÖÃÄ¬ÈÏ×Ü±£Ö¤½ğ
    */
   setDefaultTotalMargin(margin: number): void {
     if (margin <= 0) {
-      throw new Error('Total margin must be positive');
+      throw new Error("Total margin must be positive");
     }
     this.defaultTotalMargin = margin;
   }
 
   /**
-   * æ ¼å¼åŒ–é‡‘é¢æ˜¾ç¤º
+   * ¸ñÊ½»¯½ğ¶îÏÔÊ¾
    */
   formatAmount(amount: number): string {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      maximumFractionDigits: 2,
     }).format(amount);
   }
 
   /**
-   * æ ¼å¼åŒ–ç™¾åˆ†æ¯”æ˜¾ç¤º
+   * ¸ñÊ½»¯°Ù·Ö±ÈÏÔÊ¾
    */
   formatPercentage(ratio: number): string {
     return `${(ratio * 100).toFixed(2)}%`;
   }
 
   /**
-   * æ ¹æ®äº¤æ˜“å¯¹ç²¾åº¦æ ¼å¼åŒ–æ•°é‡
+   * ¸ù¾İ½»Ò×¶Ô¾«¶È¸ñÊ½»¯ÊıÁ¿
    */
   private roundQuantity(quantity: number, symbol: string): number {
-    // æ•°é‡ç²¾åº¦æ˜ å°„ï¼ŒåŸºäºå„ä¸ªå¸ç§çš„æœ€å°äº¤æ˜“å•ä½
+    // ÊıÁ¿¾«¶ÈÓ³Éä£¬»ùÓÚ¸÷¸ö±ÒÖÖµÄ×îĞ¡½»Ò×µ¥Î»
     const quantityPrecisionMap: Record<string, number> = {
-      'BTCUSDT': 3,      // BTC: ä¿ç•™3ä½å°æ•°ï¼Œæœ€å°0.001
-      'ETHUSDT': 3,      // ETH: ä¿ç•™3ä½å°æ•°ï¼Œæœ€å°0.001
-      'BNBUSDT': 2,      // BNB: ä¿ç•™2ä½å°æ•°ï¼Œæœ€å°0.01
-      'XRPUSDT': 1,      // XRP: ä¿ç•™1ä½å°æ•°ï¼Œæœ€å°0.1
-      'ADAUSDT': 0,      // ADA: ä¿ç•™0ä½å°æ•°ï¼Œæœ€å°1
-      'DOGEUSDT': 0,     // DOGE: ä¿ç•™0ä½å°æ•°ï¼Œæœ€å°10
-      'SOLUSDT': 2,      // SOL: ä¿ç•™2ä½å°æ•°ï¼Œæœ€å°0.01
-      'AVAXUSDT': 2,     // AVAX: ä¿ç•™2ä½å°æ•°ï¼Œæœ€å°0.01
-      'MATICUSDT': 1,    // MATIC: ä¿ç•™1ä½å°æ•°ï¼Œæœ€å°0.1
-      'DOTUSDT': 2,      // DOT: ä¿ç•™2ä½å°æ•°ï¼Œæœ€å°0.01
-      'LINKUSDT': 2,     // LINK: ä¿ç•™2ä½å°æ•°ï¼Œæœ€å°0.01
-      'UNIUSDT': 2,      // UNI: ä¿ç•™2ä½å°æ•°ï¼Œæœ€å°0.01
+      'BTCUSDT': 3, // BTC: ±£Áô3Î»Ğ¡Êı£¬×îĞ¡0.001
+      'ETHUSDT': 3, // ETH: ±£Áô3Î»Ğ¡Êı£¬×îĞ¡0.001
+      'BNBUSDT': 2, // BNB: ±£Áô2Î»Ğ¡Êı£¬×îĞ¡0.01
+      'XRPUSDT': 1, // XRP: ±£Áô1Î»Ğ¡Êı£¬×îĞ¡0.1
+      'ADAUSDT': 0, // ADA: ±£Áô0Î»Ğ¡Êı£¬×îĞ¡1
+      'DOGEUSDT': 0, // DOGE: ±£Áô0Î»Ğ¡Êı£¬×îĞ¡10
+      'SOLUSDT': 2, // SOL: ±£Áô2Î»Ğ¡Êı£¬×îĞ¡0.01
+      'AVAXUSDT': 2, // AVAX: ±£Áô2Î»Ğ¡Êı£¬×îĞ¡0.01
+      'MATICUSDT': 1, // MATIC: ±£Áô1Î»Ğ¡Êı£¬×îĞ¡0.1
+      'DOTUSDT': 2, // DOT: ±£Áô2Î»Ğ¡Êı£¬×îĞ¡0.01
+      'LINKUSDT': 2, // LINK: ±£Áô2Î»Ğ¡Êı£¬×îĞ¡0.01
+      'UNIUSDT': 2, // UNI: ±£Áô2Î»Ğ¡Êı£¬×îĞ¡0.01
     };
 
-    // è½¬æ¢ä¸ºå¸å®‰æ ¼å¼
-    const binanceSymbol = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`;
-    const precision = quantityPrecisionMap[binanceSymbol] || 3;
+    const binanceSymbol = symbol.endsWith("USDT") ? symbol : `${symbol}USDT`;
+    const precision = quantityPrecisionMap[binanceSymbol] ?? 3;
 
-    // ä½¿ç”¨Math.roundè¿›è¡Œå–æ•´ï¼Œé¿å…æµ®ç‚¹æ•°ç²¾åº¦é—®é¢˜
     const factor = Math.pow(10, precision);
     return Math.round(quantity * factor) / factor;
   }
 
   /**
-   * éªŒè¯åˆ†é…ç»“æœ
+   * ÑéÖ¤·ÖÅä½á¹û
    */
   validateAllocation(result: CapitalAllocationResult): boolean {
-    // æ£€æŸ¥æ€»åˆ†é…ä¿è¯é‡‘æ˜¯å¦ç­‰äºé¢„æœŸæ€»ä¿è¯é‡‘ï¼ˆå–æ•´åå…è®¸è¾ƒå¤§è¯¯å·®ï¼‰
     const expectedMargin = result.totalAllocatedMargin;
     const actualMargin = this.defaultTotalMargin;
     const difference = Math.abs(expectedMargin - actualMargin);
 
-    if (difference > 10) { // ç”±äºå‘ä¸‹å–æ•´ï¼Œå…è®¸æ›´å¤§çš„è¯¯å·®
+    if (difference > 10) {
       console.warn(`Margin allocation mismatch: expected ${actualMargin}, got ${expectedMargin}, difference: ${difference}`);
       return false;
     }
 
-    // æ£€æŸ¥æ‰€æœ‰åˆ†é…æ¯”ä¾‹ä¹‹å’Œæ˜¯å¦ä¸º1
-    const totalRatio = result.allocations.reduce((sum, a) => sum + a.allocationRatio, 0);
+    const totalRatio = result.allocations.reduce((sum, allocation) => sum + allocation.allocationRatio, 0);
     if (Math.abs(totalRatio - 1.0) > 0.001) {
       console.warn(`Allocation ratio sum is not 1.0: ${totalRatio}`);
       return false;

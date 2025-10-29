@@ -125,10 +125,20 @@ export function TradeHistoryChart({ symbols }: TradeHistoryChartProps) {
       bottomColor: "rgba(34, 197, 94, 0.05)",
     });
 
-    const data = history.points.map((point) => ({
-      time: Math.floor(point.time / 1000) as UTCTimestamp,
-      value: point.cumulativePnl,
-    }));
+    const data = history.points.reduce<
+      { time: UTCTimestamp; value: number }[]
+    >((acc, point) => {
+      const time = Math.floor(point.time / 1000) as UTCTimestamp;
+      const last = acc[acc.length - 1];
+
+      if (last && last.time === time) {
+        last.value = point.cumulativePnl;
+        return acc;
+      }
+
+      acc.push({ time, value: point.cumulativePnl });
+      return acc;
+    }, []);
 
     series.setData(data);
     chart.timeScale().fitContent();

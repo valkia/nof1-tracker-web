@@ -18,10 +18,10 @@ interface ProfitRangeMeta {
 }
 
 const PROFIT_RANGE_META: Record<ProfitRange, ProfitRangeMeta> = {
-  total: { label: "总", description: "全部历史" },
-  month: { label: "月", description: "近30天" },
-  week: { label: "周", description: "近7天" },
-  day: { label: "日", description: "近24小时" },
+  total: { label: "全部", description: "全部历史" },
+  month: { label: "30天", description: "近30天" },
+  week: { label: "7天", description: "近7天" },
+  day: { label: "24小时", description: "近24小时" },
 };
 
 export function summarizeAgents(
@@ -33,6 +33,7 @@ export function summarizeAgents(
       acc.positionsCount += agent.stats.positionsCount;
       acc.totalExposure += agent.stats.totalExposure;
       acc.totalMargin += agent.stats.totalMargin;
+      acc.totalEquity += agent.stats.totalEquity;
       acc.netUnrealized += agent.stats.netUnrealizedPnl;
 
       if (agent.stats.averageConfidence !== null) {
@@ -47,6 +48,7 @@ export function summarizeAgents(
       positionsCount: 0,
       totalExposure: 0,
       totalMargin: 0,
+      totalEquity: 0,
       netUnrealized: 0,
       confidenceSum: 0,
       confidenceSamples: 0,
@@ -58,6 +60,7 @@ export function summarizeAgents(
     positionsCount: totals.positionsCount,
     totalExposure: totals.totalExposure,
     totalMargin: totals.totalMargin,
+    totalEquity: totals.totalEquity,
     netUnrealized: totals.netUnrealized,
     averageConfidence:
       totals.confidenceSamples > 0

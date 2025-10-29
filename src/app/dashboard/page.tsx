@@ -62,7 +62,7 @@ export default async function DashboardPage({
 }
 
 function resolveTab(tabValue: string | undefined): DashboardTabId {
-  if (tabValue === "trading" || tabValue === "settings") {
+  if (tabValue === "trading" || tabValue === "settings" || tabValue === "guide") {
     return tabValue;
   }
   return "overview";

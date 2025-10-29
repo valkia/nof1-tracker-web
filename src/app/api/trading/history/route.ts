@@ -33,7 +33,10 @@ export async function GET(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to load trade history";
-    const status = message.includes("BINANCE_API") ? 412 : 500;
+    const status =
+      message.includes("Binance API Key") || message.includes("BINANCE_API")
+        ? 412
+        : 500;
     console.error("Failed to load trade history", message);
     return NextResponse.json({ error: message }, { status });
   }

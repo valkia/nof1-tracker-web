@@ -1,5 +1,6 @@
 import {
   Activity,
+  BookOpen,
   Bot,
   LayoutDashboard,
   ListTree,
@@ -35,6 +36,12 @@ export function Sidebar() {
           交易概览
         </SidebarNav.Item>
         <SidebarNav.Item
+          icon={<BookOpen size={16} />}
+          href="/dashboard?tab=guide"
+        >
+          使用引导
+        </SidebarNav.Item>
+        <SidebarNav.Item
           icon={<Activity size={16} />}
           href="/dashboard?tab=trading"
         >
@@ -55,9 +62,9 @@ export function Sidebar() {
       </SidebarNav>
 
       <div className="mt-auto rounded-2xl border border-surface-200 bg-surface-50/80 p-4 text-xs text-surface-500">
-        <p className="font-semibold text-surface-700">环境变量</p>
+        <p className="font-semibold text-surface-700">使用提示</p>
         <p className="pt-2 leading-relaxed">
-          在 `.env` 中配置 Binance API 与 NOF1 API 地址，即可启用实时跟单与风控。
+          在“系统设置”中填入 Binance API Key、Secret 以及 Testnet 选项，保存后即可启用实时跟单。
         </p>
       </div>
     </aside>

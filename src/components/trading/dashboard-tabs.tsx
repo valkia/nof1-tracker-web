@@ -10,6 +10,7 @@ import {
 import { AgentStatsSummary } from "@/components/agents/agent-stats";
 import { AgentGrid } from "@/components/agents/agent-grid";
 import { AgentProfitChart } from "@/components/agents/agent-profit-chart";
+import { BinanceGuide } from "@/components/trading/binance-guide";
 import type { AgentOverview } from "@/server/nof1/service";
 import type { TrackerSettings } from "@/server/nof1/settings";
 import type { ProfitRange } from "@/types/agents";
@@ -22,7 +23,7 @@ import {
 
 const PROFIT_RANGE_OPTIONS = getProfitRangeOptions();
 
-export type DashboardTabId = "overview" | "trading" | "settings";
+export type DashboardTabId = "overview" | "trading" | "settings" | "guide";
 
 interface DashboardTabsProps {
   agents: AgentOverview[];
@@ -154,10 +155,10 @@ export function DashboardTabs({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                  盈利维度
+                  资产维度
                 </p>
                 <h2 className="text-lg font-semibold text-surface-900">
-                  {rangeMeta.description} 盈利统计
+                  {rangeMeta.description} 账户权益统计
                 </h2>
               </div>
               <ProfitRangeFilter
@@ -173,12 +174,16 @@ export function DashboardTabs({
           <AgentProfitChart
             profitRange={profitRange}
             rangeDescription={rangeMeta.description}
-            totalProfit={summaryForRange.netUnrealized}
+            totalEquity={summaryForRange.totalEquity}
           />
           <div id="agents">
             <AgentGrid agents={agents} />
           </div>
         </div>
+      ) : null}
+
+      {currentTab === "guide" ? (
+        <BinanceGuide onOpenSettings={() => navigateToTab("settings")} />
       ) : null}
 
       {currentTab === "trading" ? (

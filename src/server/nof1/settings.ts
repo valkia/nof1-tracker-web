@@ -22,12 +22,18 @@ export interface TrackerSettings {
   profitTarget: number | null;
   autoRefollow: boolean;
   marginType: MarginMode;
+  maxLeverage: number;
   riskOnly: boolean;
   interval: number;
   telegram: {
     enabled: boolean;
     token: string;
     chatId: string;
+  };
+  binance: {
+    apiKey: string;
+    apiSecret: string;
+    testnet: boolean;
   };
 }
 
@@ -38,12 +44,18 @@ const DEFAULT_SETTINGS: TrackerSettings = {
   profitTarget: 25,
   autoRefollow: false,
   marginType: "CROSSED",
+  maxLeverage: 20,
   riskOnly: true,
   interval: 30,
   telegram: {
     enabled: false,
     token: "",
     chatId: "",
+  },
+  binance: {
+    apiKey: "",
+    apiSecret: "",
+    testnet: true,
   },
 };
 
@@ -175,6 +187,11 @@ function mergeSettings(
       ? normalized.marginType
       : current.marginType;
 
+  const maxLeverage = sanitizeNumber(
+    normalized.maxLeverage,
+    current.maxLeverage ?? DEFAULT_SETTINGS.maxLeverage,
+    { min: 1, max: 125 },
+  );
   const autoRefollow =
     typeof normalized.autoRefollow === "boolean"
       ? normalized.autoRefollow
@@ -204,6 +221,21 @@ function mergeSettings(
         : current.telegram.chatId,
   };
 
+  const binance = {
+    apiKey:
+      typeof normalized.binance?.apiKey === "string"
+        ? normalized.binance.apiKey.trim()
+        : current.binance.apiKey,
+    apiSecret:
+      typeof normalized.binance?.apiSecret === "string"
+        ? normalized.binance.apiSecret.trim()
+        : current.binance.apiSecret,
+    testnet:
+      typeof normalized.binance?.testnet === "boolean"
+        ? normalized.binance.testnet
+        : current.binance.testnet,
+  };
+
   return {
     priceTolerance,
     symbolTolerances,
@@ -211,11 +243,13 @@ function mergeSettings(
     profitTarget,
     autoRefollow,
     marginType,
+    maxLeverage,
     riskOnly,
     interval,
     telegram,
+    binance,
   };
-}
+
 
 export async function getTrackerSettings(): Promise<TrackerSettings> {
   await ensureSettingsFile();
@@ -262,19 +296,45 @@ export function settingsToCommandOptions(
   overrides?: Partial<CommandOptions>,
 ): CommandOptions {
   const base: CommandOptions = {
-    priceTolerance: settings.priceTolerance,
-    totalMargin: settings.totalMargin,
-    profit: settings.profitTarget ?? undefined,
-    autoRefollow: settings.autoRefollow,
-    marginType: settings.marginType,
-    riskOnly: settings.riskOnly,
-    interval: settings.interval.toString(),
-  };
+  priceTolerance: settings.priceTolerance,
+  totalMargin: settings.totalMargin,
+  profit: settings.profitTarget ?? undefined,
+  autoRefollow: settings.autoRefollow,
+  marginType: settings.marginType,
+  maxLeverage: settings.maxLeverage,
+  riskOnly: settings.riskOnly,
+  interval: settings.interval.toString(),
+};
 
   return {
     ...base,
     ...overrides,
     marginType:
       overrides?.marginType ?? base.marginType ?? DEFAULT_SETTINGS.marginType,
+    maxLeverage:
+      overrides?.maxLeverage ?? base.maxLeverage ?? DEFAULT_SETTINGS.maxLeverage,
   };
 }
+
+export interface BinanceCredentials {
+  apiKey: string;
+  apiSecret: string;
+  testnet: boolean;
+}
+
+export function settingsToBinanceCredentials(
+  settings: TrackerSettings,
+): BinanceCredentials {
+  return {
+    apiKey: settings.binance.apiKey,
+    apiSecret: settings.binance.apiSecret,
+    testnet: settings.binance.testnet,
+  };
+}
+
+
+
+
+
+
+
