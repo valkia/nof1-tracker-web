@@ -50,15 +50,35 @@ export class FuturesCapitalManager {
       };
     }
 
-    // 计算总原始保证金
-    const totalOriginalMargin = validPositions.reduce((sum, p) => sum + p.margin, 0);
+    // 重新计算每个仓位的实际保证金（基于入场价格和杠杆）
+    // 这样可以确保计算的准确性，不依赖API返回的margin字段
+    const positionsWithCalculatedMargin = validPositions.map(p => ({
+      ...p,
+      calculatedMargin: (Math.abs(p.quantity) * p.entry_price) / p.leverage
+    }));
+
+    // 计算总原始保证金（使用重新计算的值）
+    const totalOriginalMargin = positionsWithCalculatedMargin.reduce((sum, p) => sum + p.calculatedMargin, 0);
 
     // 计算每个仓位的分配
-    const allocations: CapitalAllocation[] = validPositions.map(position => {
-      const allocationRatio = position.margin / totalOriginalMargin;
+    const allocations: CapitalAllocation[] = positionsWithCalculatedMargin.map(position => {
+      // 使用重新计算的保证金
+      const originalMargin = position.calculatedMargin;
+      
+      // 计算分配比例
+      const allocationRatio = originalMargin / totalOriginalMargin;
+      
+      // 分配给用户的保证金
       const allocatedMargin = totalMarginToUse * allocationRatio;
-      const notionalValue = allocatedMargin * position.leverage;
-      const adjustedQuantity = notionalValue / position.current_price;
+      
+      // 计算用户应该下单的数量（按比例缩放）
+      // scaleFactor = 用户保证金 / Agent保证金
+      const scaleFactor = allocatedMargin / originalMargin;
+      const adjustedQuantity = Math.abs(position.quantity) * scaleFactor;
+      
+      // 计算名义价值（使用入场价格，确保与保证金计算一致）
+      const notionalValue = adjustedQuantity * position.entry_price;
+      
       const side = position.quantity > 0 ? "BUY" : "SELL";
 
       // 去掉小数部分：直接截断小数，不四舍五入
@@ -68,7 +88,7 @@ export class FuturesCapitalManager {
 
       return {
         symbol: position.symbol,
-        originalMargin: position.margin,
+        originalMargin: originalMargin,  // 使用重新计算的保证金
         allocatedMargin: roundedAllocatedMargin,
         notionalValue: roundedNotionalValue,
         adjustedQuantity: roundedAdjustedQuantity,

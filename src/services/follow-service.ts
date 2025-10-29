@@ -735,14 +735,18 @@ export class FollowService {
   private displayCapitalAllocation(allocationResult: CapitalAllocationResult, agentId: string): void {
     logDebug(`\n${LOGGING_CONFIG.EMOJIS.MONEY} Capital Allocation for ${agentId}:`);
     logDebug('==========================================');
-    logDebug(`${LOGGING_CONFIG.EMOJIS.MONEY} Total Margin: $${allocationResult.totalAllocatedMargin.toFixed(2)}`);
+    logDebug(`${LOGGING_CONFIG.EMOJIS.MONEY} Total Agent Margin: $${allocationResult.totalOriginalMargin.toFixed(2)}`);
+    logDebug(`${LOGGING_CONFIG.EMOJIS.MONEY} Total User Margin: $${allocationResult.totalAllocatedMargin.toFixed(2)}`);
     logDebug(`${LOGGING_CONFIG.EMOJIS.TREND_UP} Total Notional Value: $${allocationResult.totalNotionalValue.toFixed(2)}`);
     logDebug('');
 
     for (const allocation of allocationResult.allocations) {
+      const scaleRatio = allocation.originalMargin > 0 
+        ? (allocation.allocatedMargin / allocation.originalMargin) * 100 
+        : 0;
       logDebug(`${allocation.symbol} - ${allocation.leverage}x leverage`);
-      logDebug(`   ${LOGGING_CONFIG.EMOJIS.CHART} Original Margin: $${allocation.originalMargin.toFixed(2)} (${this.capitalManager.formatPercentage(allocation.allocationRatio)})`);
-      logDebug(`   ${LOGGING_CONFIG.EMOJIS.MONEY} Allocated Margin: $${allocation.allocatedMargin.toFixed(2)}`);
+      logDebug(`   ${LOGGING_CONFIG.EMOJIS.CHART} Agent Margin: $${allocation.originalMargin.toFixed(2)}`);
+      logDebug(`   ${LOGGING_CONFIG.EMOJIS.MONEY} User Margin: $${allocation.allocatedMargin.toFixed(2)} (${scaleRatio.toFixed(2)}% of Agent)`);
       logDebug(`   ${LOGGING_CONFIG.EMOJIS.TREND_UP} Notional Value: $${allocation.notionalValue.toFixed(2)}`);
       logDebug(`   ${LOGGING_CONFIG.EMOJIS.INFO} Adjusted Quantity: ${allocation.adjustedQuantity.toFixed(4)}`);
       logDebug('');

@@ -19,14 +19,14 @@ export interface CapitalAllocationResult {
 }
 
 export class FuturesCapitalManager {
-  private defaultTotalMargin: number = 10; // Ä¬ÈÏ×Ü±£Ö¤½ð10 USDT
+  private defaultTotalMargin: number = 10; // Ä¬ï¿½ï¿½ï¿½Ü±ï¿½Ö¤ï¿½ï¿½10 USDT
 
   /**
-   * ·ÖÅä±£Ö¤½ðµ½¸÷¸ö²ÖÎ»
-   * @param positions AgentµÄ²ÖÎ»ÐÅÏ¢
-   * @param totalMargin ÓÃ»§Éè¶¨µÄ×Ü±£Ö¤½ð
-   * @param availableBalance ¿ÉÓÃÓà¶î£¨¿ÉÑ¡£¬ÓÃÓÚ¼ì²éÊÇ·ñÓÐ×ã¹»×Ê½ð£©
-   * @param maxLeverage ×î´óÔÊÐí¸Ü¸Ë£¨¿ÉÑ¡£¬ÓÃÓÚÑ¹Ëõ²ÖÎ»¸Ü¸Ë£©
+   * ï¿½ï¿½ï¿½ä±£Ö¤ï¿½ðµ½¸ï¿½ï¿½ï¿½ï¿½ï¿½Î»
+   * @param positions Agentï¿½Ä²ï¿½Î»ï¿½ï¿½Ï¢
+   * @param totalMargin ï¿½Ã»ï¿½ï¿½è¶¨ï¿½ï¿½ï¿½Ü±ï¿½Ö¤ï¿½ï¿½
+   * @param availableBalance ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½î£¨ï¿½ï¿½Ñ¡ï¿½ï¿½ï¿½ï¿½ï¿½Ú¼ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ã¹»ï¿½Ê½ï¿½
+   * @param maxLeverage ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü¸Ë£ï¿½ï¿½ï¿½Ñ¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ¹ï¿½ï¿½ï¿½ï¿½Î»ï¿½Ü¸Ë£ï¿½
    */
   allocateMargin(
     positions: Position[],
@@ -45,18 +45,22 @@ export class FuturesCapitalManager {
     const prepared = positions
       .map((position) => {
         const absQuantity = Math.abs(position.quantity);
-        const price = position.current_price;
+        // ä½¿ç”¨å…¥åœºä»·æ ¼è€Œä¸æ˜¯å½“å‰ä»·æ ¼æ¥è®¡ç®—ä¿è¯é‡‘
+        const entryPrice = position.entry_price;
         const baseLeverage = position.leverage > 0 ? position.leverage : 1;
         const effectiveLeverage = maxLeverage && maxLeverage > 0
           ? Math.min(baseLeverage, maxLeverage)
           : baseLeverage;
 
-        const fallbackMargin =
-          absQuantity > 0 && price > 0 && baseLeverage > 0
-            ? (absQuantity * price) / baseLeverage
+        // é‡æ–°è®¡ç®—å®žé™…ä¿è¯é‡‘ï¼ˆåŸºäºŽå…¥åœºä»·æ ¼å’Œæ æ†ï¼‰
+        // è¿™æ ·å¯ä»¥ç¡®ä¿è®¡ç®—çš„å‡†ç¡®æ€§ï¼Œä¸ä¾èµ–APIè¿”å›žçš„marginå­—æ®µ
+        const calculatedMargin =
+          absQuantity > 0 && entryPrice > 0 && baseLeverage > 0
+            ? (absQuantity * entryPrice) / baseLeverage
             : 0;
 
-        const effectiveMargin = position.margin > 0 ? position.margin : fallbackMargin;
+        // å§‹ç»ˆä½¿ç”¨é‡æ–°è®¡ç®—çš„ä¿è¯é‡‘ï¼Œç¡®ä¿å‡†ç¡®æ€§
+        const effectiveMargin = calculatedMargin;
 
         return {
           position,
@@ -64,7 +68,7 @@ export class FuturesCapitalManager {
           effectiveLeverage,
         };
       })
-      .filter((entry) => entry.effectiveMargin > 0 && entry.position.current_price > 0);
+      .filter((entry) => entry.effectiveMargin > 0 && entry.position.entry_price > 0);
 
     if (prepared.length === 0) {
       return {
@@ -89,12 +93,18 @@ export class FuturesCapitalManager {
       const { position, effectiveMargin, effectiveLeverage } = entry;
       const allocationRatio = effectiveMargin / totalOriginalMargin;
       const targetMargin = totalMarginToUse * allocationRatio;
-      const rawNotional = targetMargin * effectiveLeverage;
-      const rawQuantity = rawNotional / position.current_price;
+      
+      // è®¡ç®—ç¼©æ”¾æ¯”ä¾‹ï¼šç”¨æˆ·ä¿è¯é‡‘ / Agentä¿è¯é‡‘
+      const scaleFactor = targetMargin / effectiveMargin;
+      
+      // æŒ‰æ¯”ä¾‹ç¼©æ”¾æ•°é‡ï¼ˆè€Œä¸æ˜¯é‡æ–°è®¡ç®—ï¼‰
+      const rawQuantity = Math.abs(position.quantity) * scaleFactor;
 
       const roundedQuantity = this.roundQuantity(rawQuantity, position.symbol);
       const safeQuantity = Math.max(0, Math.min(roundedQuantity, rawQuantity));
-      const notionalValue = safeQuantity * position.current_price;
+      
+      // ä½¿ç”¨å…¥åœºä»·æ ¼è®¡ç®—åä¹‰ä»·å€¼ï¼Œç¡®ä¿ä¸Žä¿è¯é‡‘è®¡ç®—ä¸€è‡´
+      const notionalValue = safeQuantity * position.entry_price;
       const allocatedMargin = effectiveLeverage > 0 ? notionalValue / effectiveLeverage : 0;
       const side = position.quantity > 0 ? "BUY" : "SELL";
 
@@ -122,14 +132,14 @@ export class FuturesCapitalManager {
   }
 
   /**
-   * »ñÈ¡Ä¬ÈÏ×Ü±£Ö¤½ð
+   * ï¿½ï¿½È¡Ä¬ï¿½ï¿½ï¿½Ü±ï¿½Ö¤ï¿½ï¿½
    */
   getDefaultTotalMargin(): number {
     return this.defaultTotalMargin;
   }
 
   /**
-   * ÉèÖÃÄ¬ÈÏ×Ü±£Ö¤½ð
+   * ï¿½ï¿½ï¿½ï¿½Ä¬ï¿½ï¿½ï¿½Ü±ï¿½Ö¤ï¿½ï¿½
    */
   setDefaultTotalMargin(margin: number): void {
     if (margin <= 0) {
@@ -139,7 +149,7 @@ export class FuturesCapitalManager {
   }
 
   /**
-   * ¸ñÊ½»¯½ð¶îÏÔÊ¾
+   * ï¿½ï¿½Ê½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¾
    */
   formatAmount(amount: number): string {
     return new Intl.NumberFormat("en-US", {
@@ -151,30 +161,30 @@ export class FuturesCapitalManager {
   }
 
   /**
-   * ¸ñÊ½»¯°Ù·Ö±ÈÏÔÊ¾
+   * ï¿½ï¿½Ê½ï¿½ï¿½ï¿½Ù·Ö±ï¿½ï¿½ï¿½Ê¾
    */
   formatPercentage(ratio: number): string {
     return `${(ratio * 100).toFixed(2)}%`;
   }
 
   /**
-   * ¸ù¾Ý½»Ò×¶Ô¾«¶È¸ñÊ½»¯ÊýÁ¿
+   * ï¿½ï¿½ï¿½Ý½ï¿½ï¿½×¶Ô¾ï¿½ï¿½È¸ï¿½Ê½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
    */
   private roundQuantity(quantity: number, symbol: string): number {
-    // ÊýÁ¿¾«¶ÈÓ³Éä£¬»ùÓÚ¸÷¸ö±ÒÖÖµÄ×îÐ¡½»Ò×µ¥Î»
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ó³ï¿½ä£¬ï¿½ï¿½ï¿½Ú¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Öµï¿½ï¿½ï¿½Ð¡ï¿½ï¿½ï¿½×µï¿½Î»
     const quantityPrecisionMap: Record<string, number> = {
-      'BTCUSDT': 3, // BTC: ±£Áô3Î»Ð¡Êý£¬×îÐ¡0.001
-      'ETHUSDT': 3, // ETH: ±£Áô3Î»Ð¡Êý£¬×îÐ¡0.001
-      'BNBUSDT': 2, // BNB: ±£Áô2Î»Ð¡Êý£¬×îÐ¡0.01
-      'XRPUSDT': 1, // XRP: ±£Áô1Î»Ð¡Êý£¬×îÐ¡0.1
-      'ADAUSDT': 0, // ADA: ±£Áô0Î»Ð¡Êý£¬×îÐ¡1
-      'DOGEUSDT': 0, // DOGE: ±£Áô0Î»Ð¡Êý£¬×îÐ¡10
-      'SOLUSDT': 2, // SOL: ±£Áô2Î»Ð¡Êý£¬×îÐ¡0.01
-      'AVAXUSDT': 2, // AVAX: ±£Áô2Î»Ð¡Êý£¬×îÐ¡0.01
-      'MATICUSDT': 1, // MATIC: ±£Áô1Î»Ð¡Êý£¬×îÐ¡0.1
-      'DOTUSDT': 2, // DOT: ±£Áô2Î»Ð¡Êý£¬×îÐ¡0.01
-      'LINKUSDT': 2, // LINK: ±£Áô2Î»Ð¡Êý£¬×îÐ¡0.01
-      'UNIUSDT': 2, // UNI: ±£Áô2Î»Ð¡Êý£¬×îÐ¡0.01
+      'BTCUSDT': 3, // BTC: ï¿½ï¿½ï¿½ï¿½3Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.001
+      'ETHUSDT': 3, // ETH: ï¿½ï¿½ï¿½ï¿½3Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.001
+      'BNBUSDT': 2, // BNB: ï¿½ï¿½ï¿½ï¿½2Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.01
+      'XRPUSDT': 1, // XRP: ï¿½ï¿½ï¿½ï¿½1Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.1
+      'ADAUSDT': 0, // ADA: ï¿½ï¿½ï¿½ï¿½0Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡1
+      'DOGEUSDT': 0, // DOGE: ï¿½ï¿½ï¿½ï¿½0Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡10
+      'SOLUSDT': 2, // SOL: ï¿½ï¿½ï¿½ï¿½2Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.01
+      'AVAXUSDT': 2, // AVAX: ï¿½ï¿½ï¿½ï¿½2Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.01
+      'MATICUSDT': 1, // MATIC: ï¿½ï¿½ï¿½ï¿½1Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.1
+      'DOTUSDT': 2, // DOT: ï¿½ï¿½ï¿½ï¿½2Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.01
+      'LINKUSDT': 2, // LINK: ï¿½ï¿½ï¿½ï¿½2Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.01
+      'UNIUSDT': 2, // UNI: ï¿½ï¿½ï¿½ï¿½2Î»Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡0.01
     };
 
     const binanceSymbol = symbol.endsWith("USDT") ? symbol : `${symbol}USDT`;
@@ -185,7 +195,7 @@ export class FuturesCapitalManager {
   }
 
   /**
-   * ÑéÖ¤·ÖÅä½á¹û
+   * ï¿½ï¿½Ö¤ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
    */
   validateAllocation(result: CapitalAllocationResult): boolean {
     const expectedMargin = result.totalAllocatedMargin;
