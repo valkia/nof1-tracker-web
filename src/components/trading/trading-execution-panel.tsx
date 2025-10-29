@@ -38,13 +38,16 @@ export function TradingExecutionPanel({
   const [riskOnly, setRiskOnly] = useState<boolean>(settings.riskOnly);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [result, setResult] = useState<FollowExecutionResponse | null>(null);
-  
+
   // 定时轮询状态
   const [autoExecuteEnabled, setAutoExecuteEnabled] = useState<boolean>(false);
   const [countdown, setCountdown] = useState<number>(0);
   const [executionCount, setExecutionCount] = useState<number>(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 执行锁，防止重叠执行
+  const isExecutingRef = useRef<boolean>(false);
 
   const agentOptions = useMemo(
     () =>
@@ -88,6 +91,12 @@ export function TradingExecutionPanel({
 
   // 执行跟单的核心逻辑
   const executeFollow = useCallback(async () => {
+    // 检查执行锁，防止重叠执行
+    if (isExecutingRef.current) {
+      console.log("上次执行还未完成，跳过本次执行");
+      return;
+    }
+
     if (!selectedAgent) {
       toast.error("请选择要跟随的 Agent");
       return;
@@ -99,6 +108,8 @@ export function TradingExecutionPanel({
       return;
     }
 
+    // 设置执行锁
+    isExecutingRef.current = true;
     setIsSubmitting(true);
     setResult(null);
 
@@ -155,6 +166,8 @@ export function TradingExecutionPanel({
       }
     } finally {
       setIsSubmitting(false);
+      // 释放执行锁
+      isExecutingRef.current = false;
     }
   }, [
     selectedAgent,

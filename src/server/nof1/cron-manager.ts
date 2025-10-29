@@ -18,6 +18,7 @@ class CronManager {
   private tasks: Map<string, CronTask> = new Map();
   private timers: Map<string, NodeJS.Timeout> = new Map();
   private isInitialized = false;
+  private executingTasks: Set<string> = new Set(); // 执行锁，防止重叠执行
 
   /**
    * 初始化管理器（可用于加载持久化数据）
@@ -110,9 +111,6 @@ class CronManager {
 
     task.enabled = true;
     this.tasks.set(taskId, task);
-
-    // 立即执行一次
-    this.executeTask(taskId);
 
     // 设置定时器
     const timer = setInterval(() => {
@@ -230,12 +228,21 @@ class CronManager {
    */
   private async executeTask(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
-    
+
     if (!task || !task.enabled) {
       return;
     }
 
+    // 检查执行锁，防止重叠执行
+    if (this.executingTasks.has(taskId)) {
+      console.log(`[CronManager] 任务 ${taskId} 上次执行还未完成，跳过本次执行`);
+      return;
+    }
+
     console.log(`[CronManager] 执行任务: ${taskId}, Agent: ${task.agentId}`);
+
+    // 设置执行锁
+    this.executingTasks.add(taskId);
 
     try {
       await executeFollowAgent({
@@ -255,9 +262,12 @@ class CronManager {
       // TODO: 持久化更新统计信息
     } catch (error) {
       console.error(`[CronManager] 任务执行失败: ${taskId}`, error);
-      
+
       // 可选：连续失败多次后自动停止任务
       // 这里暂不自动停止，让用户决定
+    } finally {
+      // 释放执行锁
+      this.executingTasks.delete(taskId);
     }
   }
 
