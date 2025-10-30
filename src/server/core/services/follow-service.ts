@@ -30,13 +30,80 @@ interface PositionChange {
 }
 
 /**
- * 跟单服务
- * 负责处理跟单逻辑，包括仓位变化检测、资金分配等
- * 
- * 注意：不再使用内存缓存 lastPositions
- * 所有历史状态都从 order-history.json 重建，确保持久化和一致性
+ * 持仓验证结果
  */
+interface PositionValidationResult {
+  isValid: boolean;
+  isConsistent: boolean;
+  discrepancies: PositionDiscrepancy[];
+  actionRequired: 'none' | 'rebuild_history' | 'trust_actual' | 'user_confirmation';
+  suggestedAction: string;
+}
+
+/**
+ * 持仓差异详情
+ */
+interface PositionDiscrepancy {
+  symbol: string;
+  type: 'missing_in_history' | 'extra_in_history' | 'quantity_mismatch' | 'price_mismatch';
+  actualPosition?: Position;
+  historicalPosition?: Position;
+  quantityDiff?: number;
+  priceDiff?: number;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+}
+
+/**
+ * 用户确认结果
+ */
+interface UserConfirmationResult {
+  confirmed: boolean;
+  action: 'trust_actual' | 'rebuild_history' | 'abort';
+  timestamp: number;
+}
+
+/**
+ * 临时的用户确认存储（实际项目中应该使用数据库）
+ */
+class UserConfirmationManager {
+  private static instance: UserConfirmationManager;
+  private confirmations = new Map<string, UserConfirmationResult>();
+
+  static getInstance(): UserConfirmationManager {
+    if (!UserConfirmationManager.instance) {
+      UserConfirmationManager.instance = new UserConfirmationManager();
+    }
+    return UserConfirmationManager.instance;
+  }
+
+  setConfirmation(agentId: string, result: UserConfirmationResult): void {
+    this.confirmations.set(agentId, result);
+  }
+
+  getConfirmation(agentId: string): UserConfirmationResult | undefined {
+    return this.confirmations.get(agentId);
+  }
+
+  clearConfirmation(agentId: string): void {
+    this.confirmations.delete(agentId);
+  }
+
+  hasRecentConfirmation(agentId: string, maxAgeMs: number = 300000): boolean { // 5分钟过期
+    const confirmation = this.getConfirmation(agentId);
+    if (!confirmation) return false;
+
+    const age = Date.now() - confirmation.timestamp;
+    if (age > maxAgeMs) {
+      this.clearConfirmation(agentId);
+      return false;
+    }
+
+    return true;
+  }
+}
 export class FollowService {
+  private userConfirmationManager = UserConfirmationManager.getInstance();
+
   constructor(
     private positionManager: PositionManager,
     private orderHistoryManager: OrderHistoryManager,
@@ -46,9 +113,213 @@ export class FollowService {
   ) {}
 
   /**
-   * 从订单历史重建上次仓位状态
-   * 这样即使程序重启也能正确检测仓位变化
+   * 验证实际持仓与历史记录的一致性
+   * @param agentId Agent ID
+   * @param currentPositions 当前实际持仓
+   * @returns 验证结果
    */
+  async validatePositionConsistency(agentId: string, currentPositions: Position[]): Promise<PositionValidationResult> {
+    logInfo(`${LOGGING_CONFIG.EMOJIS.SEARCH} Validating position consistency for agent ${agentId}`);
+
+    try {
+      // 重建历史仓位状态
+      const historicalPositions = this.rebuildLastPositionsFromHistory(agentId, currentPositions);
+
+      const discrepancies: PositionDiscrepancy[] = [];
+      const currentPositionsMap = new Map(currentPositions.map(p => [p.symbol, p]));
+      const historicalPositionsMap = new Map(historicalPositions.map(p => [p.symbol, p]));
+
+      // 检查实际持仓中每个币种
+      for (const [symbol, actualPosition] of currentPositionsMap) {
+        const historicalPosition = historicalPositionsMap.get(symbol);
+
+        if (!historicalPosition) {
+          // 实际持仓在历史记录中不存在
+          discrepancies.push({
+            symbol,
+            type: 'missing_in_history',
+            actualPosition,
+            severity: 'high'
+          });
+        } else {
+          // 比较数量和价格
+          const quantityDiff = Math.abs(actualPosition.quantity - historicalPosition.quantity);
+          const priceDiff = Math.abs(actualPosition.entry_price - historicalPosition.entry_price);
+
+          if (quantityDiff > 0.000001) { // 忽略微小差异
+            discrepancies.push({
+              symbol,
+              type: 'quantity_mismatch',
+              actualPosition,
+              historicalPosition,
+              quantityDiff,
+              severity: quantityDiff > Math.abs(actualPosition.quantity) * 0.1 ? 'critical' : 'medium'
+            });
+          }
+
+          if (priceDiff > 0.01) { // 价格差异超过1分
+            discrepancies.push({
+              symbol,
+              type: 'price_mismatch',
+              actualPosition,
+              historicalPosition,
+              priceDiff,
+              severity: priceDiff > actualPosition.entry_price * 0.05 ? 'high' : 'low'
+            });
+          }
+        }
+      }
+
+      // 检查历史记录中存在但实际没有的仓位
+      for (const [symbol, historicalPosition] of historicalPositionsMap) {
+        if (!currentPositionsMap.has(symbol)) {
+          discrepancies.push({
+            symbol,
+            type: 'extra_in_history',
+            historicalPosition,
+            severity: 'medium'
+          });
+        }
+      }
+
+      // 确定处理策略
+      const result = this.determineValidationAction(discrepancies, currentPositions, historicalPositions);
+
+      logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Position validation completed: ${discrepancies.length} discrepancies found`);
+      if (discrepancies.length > 0) {
+        discrepancies.forEach(d => {
+          logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} ${d.type} for ${d.symbol}: ${d.severity} severity`);
+        });
+      }
+
+      return result;
+    } catch (error) {
+      logError(`${LOGGING_CONFIG.EMOJIS.ERROR} Failed to validate position consistency: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return {
+        isValid: false,
+        isConsistent: false,
+        discrepancies: [],
+        actionRequired: 'user_confirmation',
+        suggestedAction: 'Validation failed, please check logs and decide manually'
+      };
+    }
+  }
+
+  /**
+   * 检查是否需要用户确认
+   */
+  async needsUserConfirmation(agentId: string, currentPositions: Position[]): Promise<boolean> {
+    const validationResult = await this.validatePositionConsistency(agentId, currentPositions);
+    return validationResult.actionRequired === 'user_confirmation' &&
+           !this.userConfirmationManager.hasRecentConfirmation(agentId);
+  }
+
+  /**
+   * 获取需要用户确认的信息
+   */
+  async getConfirmationRequiredInfo(agentId: string, currentPositions: Position[]): Promise<{
+    message: string;
+    discrepancies: PositionDiscrepancy[];
+    options: Array<{value: string; label: string; description: string}>;
+  }> {
+    const validationResult = await this.validatePositionConsistency(agentId, currentPositions);
+
+    return {
+      message: validationResult.suggestedAction,
+      discrepancies: validationResult.discrepancies,
+      options: [
+        {
+          value: 'trust_actual',
+          label: '信任实际持仓',
+          description: '忽略历史记录差异，直接跟随当前实际持仓'
+        },
+        {
+          value: 'rebuild_history',
+          label: '重建历史记录',
+          description: '基于当前持仓重新构建历史记录'
+        },
+        {
+          value: 'abort',
+          label: '中止操作',
+          description: '暂停跟单，需要手动检查'
+        }
+      ]
+    };
+  }
+
+  /**
+   * 处理用户确认结果
+   */
+  handleUserConfirmation(agentId: string, action: 'trust_actual' | 'rebuild_history' | 'abort'): void {
+    this.userConfirmationManager.setConfirmation(agentId, {
+      confirmed: true,
+      action,
+      timestamp: Date.now()
+    });
+  }
+  private determineValidationAction(
+    discrepancies: PositionDiscrepancy[],
+    currentPositions: Position[],
+    historicalPositions: Position[]
+  ): PositionValidationResult {
+    if (discrepancies.length === 0) {
+      return {
+        isValid: true,
+        isConsistent: true,
+        discrepancies: [],
+        actionRequired: 'none',
+        suggestedAction: 'Positions are consistent, continue with normal processing'
+      };
+    }
+
+    // 按严重程度分组
+    const criticalIssues = discrepancies.filter(d => d.severity === 'critical');
+    const highIssues = discrepancies.filter(d => d.severity === 'high');
+    const mediumIssues = discrepancies.filter(d => d.severity === 'medium');
+
+    // 如果有严重问题，需要用户确认
+    if (criticalIssues.length > 0) {
+      return {
+        isValid: true, // 改为true，允许继续执行
+        isConsistent: false,
+        discrepancies,
+        actionRequired: 'user_confirmation',
+        suggestedAction: `Found ${criticalIssues.length} critical issues. Please review and confirm action.`
+      };
+    }
+
+    // 如果实际持仓很多但历史记录很少，优先信任实际持仓
+    if (currentPositions.length > 0 && historicalPositions.length === 0) {
+      return {
+        isValid: true,
+        isConsistent: false,
+        discrepancies,
+        actionRequired: 'trust_actual',
+        suggestedAction: 'No historical data found, will trust actual positions and rebuild history'
+      };
+    }
+
+    // 如果历史记录显示有持仓但实际没有，可能是已平仓，重建历史
+    const extraInHistory = discrepancies.filter(d => d.type === 'extra_in_history');
+    if (extraInHistory.length > mediumIssues.length) {
+      return {
+        isValid: true,
+        isConsistent: false,
+        discrepancies,
+        actionRequired: 'rebuild_history',
+        suggestedAction: 'Historical data may be outdated, will rebuild history from actual positions'
+      };
+    }
+
+    // 默认情况下，优先信任实际持仓
+    return {
+      isValid: true,
+      isConsistent: false,
+      discrepancies,
+      actionRequired: 'trust_actual',
+      suggestedAction: 'Minor inconsistencies found, will trust actual positions and update history'
+    };
+  }
   private rebuildLastPositionsFromHistory(agentId: string, currentPositions: Position[]): Position[] {
     const processedOrders = this.orderHistoryManager.getProcessedOrdersByAgent(agentId);
     
@@ -128,36 +399,159 @@ export class FollowService {
     // 1. 清理孤立的挂单 (没有对应仓位的止盈止损单)
     await this.positionManager.cleanOrphanedOrders();
 
-    // 1. 每次都从订单历史重建上次仓位状态
-    // order-history.json 是唯一的真实来源，确保程序重启或 API 数据不变时都能正确检测变化
-    const previousPositions = this.rebuildLastPositionsFromHistory(agentId, currentPositions);
+    // 2. 新增：验证持仓一致性
+    logInfo(`${LOGGING_CONFIG.EMOJIS.SEARCH} Validating position consistency before processing`);
+    const validationResult = await this.validatePositionConsistency(agentId, currentPositions);
+
+    if (!validationResult.isValid) {
+      logError(`${LOGGING_CONFIG.EMOJIS.ERROR} Position validation failed: ${validationResult.suggestedAction}`);
+      throw new Error(`Position validation failed: ${validationResult.suggestedAction}`);
+    }
+
+    // 初始化变量
+    let previousPositions: Position[] = [];
+    let useActualPositions = false;
+
+    // 检查是否需要用户确认
+    if (validationResult.actionRequired === 'user_confirmation') {
+      const hasRecentConfirmation = this.userConfirmationManager.hasRecentConfirmation(agentId);
+      if (!hasRecentConfirmation) {
+        logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} ${validationResult.suggestedAction}, defaulting to trust actual positions as safe fallback`);
+        // 不抛出错误，而是使用默认的安全策略：信任实际持仓
+        previousPositions = [];
+        useActualPositions = true;
+      } else {
+        // 使用用户的确认结果
+        const confirmation = this.userConfirmationManager.getConfirmation(agentId)!;
+        logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Using user confirmation for agent ${agentId}: ${confirmation.action}`);
+
+        // 根据用户选择调整验证结果
+        if (confirmation.action === 'trust_actual') {
+          validationResult.actionRequired = 'trust_actual';
+        } else if (confirmation.action === 'rebuild_history') {
+          validationResult.actionRequired = 'rebuild_history';
+        } else if (confirmation.action === 'abort') {
+          throw new Error('User chose to abort the operation');
+        }
+      }
+    }
+
+    // 3. 根据验证结果决定使用哪种状态
+    if (useActualPositions === false) {
+      if (validationResult.isConsistent) {
+        // 状态一致，使用历史重建的位置
+        previousPositions = this.rebuildLastPositionsFromHistory(agentId, currentPositions);
+        logInfo(`${LOGGING_CONFIG.EMOJIS.SUCCESS} Positions are consistent, using historical data`);
+      } else {
+        // 状态不一致，根据策略决定
+        switch (validationResult.actionRequired) {
+          case 'trust_actual':
+            // 优先信任实际持仓，不使用历史重建
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Trusting actual positions, treating all as new`);
+            previousPositions = [];
+            useActualPositions = true;
+            break;
+
+          case 'rebuild_history':
+            // 重建历史，基于实际持仓
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Rebuilding history from actual positions`);
+            previousPositions = this.rebuildLastPositionsFromHistory(agentId, currentPositions);
+            break;
+
+          case 'user_confirmation':
+            // 这种情况应该在上面的用户确认检查中已经处理了
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} User confirmation case already handled, using default trust_actual strategy`);
+            break;
+
+          default:
+            // 默认使用历史数据
+            previousPositions = this.rebuildLastPositionsFromHistory(agentId, currentPositions);
+        }
+      }
+    }
 
     const followPlans: FollowPlan[] = [];
 
-    // 2. 检测仓位变化
-    const changes = await this.detectPositionChanges(currentPositions, previousPositions || [], options);
+    // 4. 检测仓位变化 - 如果信任实际持仓，则跳过对比直接生成跟随计划
+    let changes: PositionChange[];
+    if (useActualPositions) {
+      // 直接基于实际持仓生成进入计划（避免先卖后买的循环）
+      changes = this.generateDirectEntryChanges(currentPositions, options);
+      logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Using direct entry strategy for ${changes.length} positions`);
+    } else {
+      changes = await this.detectPositionChanges(currentPositions, previousPositions || [], options);
+    }
 
-    // 3. 处理每种变化
+    // 5. 处理每种变化
     for (const change of changes) {
-      const plans = await this.handlePositionChange(change, agentId, options);
+      const plans = await this.handlePositionChange(change, agentId, options, useActualPositions);
       followPlans.push(...plans);
     }
 
-    // 4. 检查止盈止损条件
+    // 6. 检查止盈止损条件
     const exitPlans = this.checkExitConditions(currentPositions, agentId);
     followPlans.push(...exitPlans);
 
-    // 5. 应用资金分配
+    // 7. 应用资金分配
     if (options?.totalMargin && options.totalMargin > 0) {
       await this.applyCapitalAllocation(followPlans, currentPositions, options!.totalMargin, agentId);
     }
 
-    // 6. 注意：不要在这里更新 lastPositions！
+    // 8. 注意：不要在这里更新 lastPositions！
     // lastPositions 应该在订单成功执行后才更新（在 PositionManager 中）
     // 这样才能确保只有真正执行的订单才会被记录
 
     logInfo(`${LOGGING_CONFIG.EMOJIS.SUCCESS} Generated ${followPlans.length} follow plan(s) for agent ${agentId}`);
     return followPlans;
+  }
+
+  /**
+   * 直接基于实际持仓生成进入计划（避免先卖后买的循环）
+   */
+  private generateDirectEntryChanges(
+    currentPositions: Position[],
+    options?: FollowOptions
+  ): PositionChange[] {
+    const changes: PositionChange[] = [];
+
+    for (const currentPosition of currentPositions) {
+      if (currentPosition.quantity !== 0) {
+        // 检查盈利目标
+        if (options?.profitTarget) {
+          const profitPercentage = this.calculateProfitPercentageSync(currentPosition);
+          if (profitPercentage >= options.profitTarget) {
+            changes.push({
+              symbol: currentPosition.symbol,
+              type: 'profit_target_reached',
+              currentPosition,
+              profitPercentage
+            });
+            continue;
+          }
+        }
+
+        // 直接生成进入计划，不与历史对比
+        changes.push({
+          symbol: currentPosition.symbol,
+          type: 'new_position',
+          currentPosition
+        });
+      }
+    }
+
+    return changes;
+  }
+
+  /**
+   * 同步计算盈利百分比（用于直接进入策略）
+   */
+  private calculateProfitPercentageSync(currentPosition: Position): number {
+    const priceDiff = currentPosition.current_price - currentPosition.entry_price;
+    const pnl = priceDiff * currentPosition.quantity;
+    const margin = Math.abs(currentPosition.quantity) * currentPosition.entry_price / currentPosition.leverage;
+
+    if (margin === 0) return 0;
+    return (pnl / margin) * 100;
   }
 
   /**
@@ -295,7 +689,8 @@ export class FollowService {
   private async handlePositionChange(
     change: PositionChange,
     agentId: string,
-    options?: FollowOptions
+    options?: FollowOptions,
+    useDirectStrategy: boolean = false
   ): Promise<FollowPlan[]> {
     const plans: FollowPlan[] = [];
 
@@ -305,7 +700,7 @@ export class FollowService {
         break;
 
       case 'new_position':
-        await this.handleNewPosition(change, agentId, plans, options);
+        await this.handleNewPosition(change, agentId, plans, options, useDirectStrategy);
         break;
 
       case 'position_closed':
@@ -461,7 +856,8 @@ export class FollowService {
     change: PositionChange,
     agentId: string,
     plans: FollowPlan[],
-    options?: FollowOptions
+    options?: FollowOptions,
+    useDirectStrategy: boolean = false
   ): Promise<void> {
     const { currentPosition } = change;
     if (!currentPosition) return;
@@ -472,66 +868,74 @@ export class FollowService {
       return;
     }
 
-    // 检查 Binance 是否已有该币种的仓位(防止程序重启后无法检测到 entry_oid 变化)
+    // 初始化 releasedMargin 变量
     let releasedMargin: number | undefined;
-    try {
-      const binancePositions = await this.positionManager['binanceService'].getPositions();
-      const targetSymbol = this.positionManager['binanceService'].convertSymbol(currentPosition.symbol);
-      
-      logDebug(`${LOGGING_CONFIG.EMOJIS.SEARCH} Checking for existing positions on Binance for ${currentPosition.symbol} (converted: ${targetSymbol})...`);
-      logVerbose(`${LOGGING_CONFIG.EMOJIS.DATA} Found ${binancePositions.length} total position(s) on Binance`);
-      
-      const existingPosition = binancePositions.find(
-        p => p.symbol === targetSymbol && parseFloat(p.positionAmt) !== 0
-      );
 
-      if (existingPosition) {
-        const positionAmt = parseFloat(existingPosition.positionAmt);
-        logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} Found existing position on Binance: ${existingPosition.symbol} ${positionAmt > 0 ? 'LONG' : 'SHORT'} ${Math.abs(positionAmt)}`);
-        logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Closing existing position before opening new entry (OID: ${currentPosition.entry_oid})...`);
-        
-        // 获取平仓前余额
-        let balanceBeforeClose: number | undefined;
-        try {
-          const accountInfo = await this.tradingExecutor.getAccountInfo();
-          balanceBeforeClose = parseFloat(accountInfo.availableBalance);
-          logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Balance before closing: $${balanceBeforeClose.toFixed(2)} USDT`);
-        } catch (error) {
-          logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to get balance before close: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-        
-        const closeReason = `Closing existing position before opening new entry (OID: ${currentPosition.entry_oid})`;
-        const closeResult = await this.positionManager.closePosition(currentPosition.symbol, closeReason);
-        
-        if (!closeResult.success) {
-          logError(`${LOGGING_CONFIG.EMOJIS.ERROR} Failed to close existing position for ${currentPosition.symbol}, skipping new position`);
-          return;
-        }
-        
-        // 获取平仓后余额,计算释放的资金
-        if (balanceBeforeClose !== undefined) {
+    // 如果使用直接策略，跳过Binance现有仓位检查（避免先卖后买）
+    if (!useDirectStrategy) {
+      // 检查 Binance 是否已有该币种的仓位(防止程序重启后无法检测到 entry_oid 变化)
+      try {
+        const binancePositions = await this.positionManager['binanceService'].getPositions();
+        const targetSymbol = this.positionManager['binanceService'].convertSymbol(currentPosition.symbol);
+
+        logDebug(`${LOGGING_CONFIG.EMOJIS.SEARCH} Checking for existing positions on Binance for ${currentPosition.symbol} (converted: ${targetSymbol})...`);
+        logVerbose(`${LOGGING_CONFIG.EMOJIS.DATA} Found ${binancePositions.length} total position(s) on Binance`);
+
+        const existingPosition = binancePositions.find(
+          p => p.symbol === targetSymbol && parseFloat(p.positionAmt) !== 0
+        );
+
+        if (existingPosition) {
+          const positionAmt = parseFloat(existingPosition.positionAmt);
+          logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} Found existing position on Binance: ${existingPosition.symbol} ${positionAmt > 0 ? 'LONG' : 'SHORT'} ${Math.abs(positionAmt)}`);
+          logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Closing existing position before opening new entry (OID: ${currentPosition.entry_oid})...`);
+
+          // 获取平仓前余额
+          let balanceBeforeClose: number | undefined;
           try {
-            // 额外等待1秒确保资金完全释放
-            await new Promise(resolve => setTimeout(resolve, 1000));
             const accountInfo = await this.tradingExecutor.getAccountInfo();
-            const balanceAfterClose = parseFloat(accountInfo.availableBalance);
-            releasedMargin = balanceAfterClose - balanceBeforeClose;
-            logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Balance after closing: $${balanceAfterClose.toFixed(2)} USDT`);
-            logInfo(`${LOGGING_CONFIG.EMOJIS.MONEY} Released margin from closing: $${releasedMargin.toFixed(2)} USDT (${releasedMargin >= 0 ? 'Profit' : 'Loss'})`);
-            
-            if (releasedMargin <= 0) {
-              logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Position closed with loss, insufficient margin released. Will use available balance.`);
-              releasedMargin = undefined;
-            }
+            balanceBeforeClose = parseFloat(accountInfo.availableBalance);
+            logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Balance before closing: $${balanceBeforeClose.toFixed(2)} USDT`);
           } catch (error) {
-            logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to get balance after close: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to get balance before close: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
+
+          const closeReason = `Closing existing position before opening new entry (OID: ${currentPosition.entry_oid})`;
+          const closeResult = await this.positionManager.closePosition(currentPosition.symbol, closeReason);
+
+          if (!closeResult.success) {
+            logError(`${LOGGING_CONFIG.EMOJIS.ERROR} Failed to close existing position for ${currentPosition.symbol}, skipping new position`);
+            return;
+          }
+
+          // 获取平仓后余额,计算释放的资金
+          if (balanceBeforeClose !== undefined) {
+            try {
+              // 额外等待1秒确保资金完全释放
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              const accountInfo = await this.tradingExecutor.getAccountInfo();
+              const balanceAfterClose = parseFloat(accountInfo.availableBalance);
+              releasedMargin = balanceAfterClose - balanceBeforeClose;
+              logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Balance after closing: $${balanceAfterClose.toFixed(2)} USDT`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.MONEY} Released margin from closing: $${releasedMargin.toFixed(2)} USDT (${releasedMargin >= 0 ? 'Profit' : 'Loss'})`);
+
+              if (releasedMargin <= 0) {
+                logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Position closed with loss, insufficient margin released. Will use available balance.`);
+                releasedMargin = undefined;
+              }
+            } catch (error) {
+              logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to get balance after close: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+          }
+        } else {
+          logDebug(`${LOGGING_CONFIG.EMOJIS.SUCCESS} No existing position found on Binance for ${targetSymbol}, proceeding with new position`);
         }
-      } else {
-        logDebug(`${LOGGING_CONFIG.EMOJIS.SUCCESS} No existing position found on Binance for ${targetSymbol}, proceeding with new position`);
+      } catch (error) {
+        logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to check existing positions: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
-    } catch (error) {
-      logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to check existing positions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } else {
+      logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Using direct strategy, skipping Binance existing position check for ${currentPosition.symbol}`);
+      // 在直接策略下，releasedMargin 保持 undefined
     }
 
     // 添加价格容忍度检查
@@ -550,9 +954,11 @@ export class FollowService {
       quantity: Math.abs(currentPosition.quantity),
       leverage: currentPosition.leverage,
       entryPrice: currentPosition.entry_price,
-      reason: releasedMargin && releasedMargin > 0
-        ? `Reopening with released margin $${releasedMargin.toFixed(2)} (OID: ${currentPosition.entry_oid}) by ${agentId}`
-        : `New position opened by ${agentId} (OID: ${currentPosition.entry_oid})`,
+      reason: useDirectStrategy
+        ? `Direct entry based on actual position (OID: ${currentPosition.entry_oid}) by ${agentId}`
+        : (releasedMargin && releasedMargin > 0
+          ? `Reopening with released margin $${releasedMargin.toFixed(2)} (OID: ${currentPosition.entry_oid}) by ${agentId}`
+          : `New position opened by ${agentId} (OID: ${currentPosition.entry_oid})`),
       agent: agentId,
       timestamp: Date.now(),
       position: currentPosition,
@@ -562,7 +968,7 @@ export class FollowService {
     };
 
     plans.push(followPlan);
-    
+
     if (releasedMargin && releasedMargin > 0) {
       logInfo(`${LOGGING_CONFIG.EMOJIS.TREND_UP} NEW POSITION (with released margin $${releasedMargin.toFixed(2)}): ${currentPosition.symbol} ${followPlan.side} ${followPlan.quantity} @ ${currentPosition.entry_price} (OID: ${currentPosition.entry_oid})`);
     } else {
