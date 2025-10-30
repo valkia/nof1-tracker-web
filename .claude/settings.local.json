@@ -4,7 +4,13 @@
       "Bash(npm run build:*)",
       "Bash(curl:*)",
       "Bash(find:*)",
-      "Bash(npx tsc --noEmit)"
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx ts-node:*)",
+      "Bash(node test/risk-manager-test.js:*)",
+      "Bash(node test\\config-reset-test.js:*)",
+      "Bash(node config-reset-test.js:*)",
+      "Bash(node risk-manager-test.js:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

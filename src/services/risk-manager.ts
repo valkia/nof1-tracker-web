@@ -32,13 +32,27 @@ export class RiskManager {
     const riskScore = this.calculateRiskScore(tradingPlan);
     const warnings = this.generateWarnings(tradingPlan, riskScore);
 
+    // Calculate max loss based on proper contract value and leverage
+    const maxLoss = this.calculateMaxLoss(tradingPlan);
+
     return {
       isValid: riskScore <= 100, // Risk score threshold
       riskScore,
       warnings,
-      maxLoss: tradingPlan.quantity * 1000, // Simplified calculation
+      maxLoss,
       suggestedPositionSize: tradingPlan.quantity
     };
+  }
+
+  /**
+   * 计算最大亏损
+   * 公式：maxLoss = quantity * contractSize * leverage
+   * 这里假设最坏情况下价格归零，所以最大亏损 = 合约数量 * 合约面值 * 杠杆
+   */
+  private calculateMaxLoss(tradingPlan: TradingPlan): number {
+    const contractSize = this.configManager.getContractSize(tradingPlan.symbol);
+    const maxLoss = tradingPlan.quantity * contractSize * tradingPlan.leverage;
+    return maxLoss;
   }
 
   /**
@@ -115,21 +129,62 @@ export class RiskManager {
   }
 
   private calculateRiskScore(tradingPlan: TradingPlan): number {
-    // Simple risk scoring based on leverage and quantity
-    const leverageRisk = tradingPlan.leverage * 10;
+    // 改进的风险评分计算
+    // 基于杠杆、仓位大小和保证金比例的综合评估
+
+    const contractSize = this.configManager.getContractSize(tradingPlan.symbol);
+    const notionalValue = tradingPlan.quantity * contractSize * tradingPlan.leverage;
+    const marginRequired = notionalValue / tradingPlan.leverage; // 保证金 = 名义价值 / 杠杆
+
+    // 基于杠杆的风险分（0-50分）
+    const leverageRisk = Math.min(tradingPlan.leverage * 2.5, 50);
+
+    // 基于仓位大小的风险分（0-30分）
+    // 假设账户总资金为10000 USDT作为参考
+    const accountSize = 10000;
+    const positionRisk = Math.min((marginRequired / accountSize) * 30, 30);
+
+    // 基于杠杆和仓位的交互风险（0-20分）
+    const interactionRisk = Math.min((tradingPlan.leverage * marginRequired) / (accountSize * 10), 20);
+
     const baseScore = 20;
-    return Math.min(baseScore + leverageRisk, 100);
+    const totalRisk = leverageRisk + positionRisk + interactionRisk;
+
+    return Math.min(baseScore + totalRisk, 100);
   }
 
   private generateWarnings(tradingPlan: TradingPlan, riskScore: number): string[] {
     const warnings: string[] = [];
+    const contractSize = this.configManager.getContractSize(tradingPlan.symbol);
+    const notionalValue = tradingPlan.quantity * contractSize * tradingPlan.leverage;
+    const marginRequired = notionalValue / tradingPlan.leverage;
 
+    // 基于杠杆的警告
     if (tradingPlan.leverage > 20) {
-      warnings.push("High leverage detected");
+      warnings.push("高杠杆警告：杠杆倍数超过20x，风险极高");
+    } else if (tradingPlan.leverage > 10) {
+      warnings.push("中等杠杆：杠杆倍数超过10x，请谨慎操作");
     }
 
+    // 基于仓位大小的警告
+    const accountSize = 10000; // 假设账户资金
+    const marginPercentage = (marginRequired / accountSize) * 100;
+    if (marginPercentage > 50) {
+      warnings.push(`重仓警告：保证金占用账户资金${marginPercentage.toFixed(1)}%，风险过高`);
+    } else if (marginPercentage > 20) {
+      warnings.push(`中等仓位：保证金占用账户资金${marginPercentage.toFixed(1)}%，请注意风险`);
+    }
+
+    // 基于风险评分的警告
     if (riskScore > 80) {
-      warnings.push("High risk score");
+      warnings.push("高风险评分：建议降低仓位或杠杆");
+    } else if (riskScore > 60) {
+      warnings.push("中等风险：请确认风险承受能力");
+    }
+
+    // 基于名义价值的警告
+    if (notionalValue > 50000) {
+      warnings.push(`大额名义价值：名义价值$${notionalValue.toLocaleString()}，市场波动影响显著`);
     }
 
     return warnings;

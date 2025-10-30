@@ -1,6 +1,7 @@
 export interface TradingConfig {
   defaultPriceTolerance: number;
   symbolTolerances: Record<string, number>;
+  contractSizes: Record<string, number>; // 合约面值配置
   telegram: {
     enabled: boolean;
     token: string;
@@ -15,6 +16,20 @@ export class ConfigManager {
     this.config = {
       defaultPriceTolerance: 1.0, // Default 1.0%
       symbolTolerances: {},
+      contractSizes: {
+        'BTC': 100,
+        'ETH': 100,
+        'BNB': 100,
+        'XRP': 100,
+        'ADA': 100,
+        'DOGE': 100,
+        'SOL': 100,
+        'AVAX': 100,
+        'MATIC': 100,
+        'DOT': 100,
+        'LINK': 100,
+        'UNI': 100,
+      },
       telegram: {
         enabled: false,
         token: "",
@@ -132,6 +147,20 @@ export class ConfigManager {
     this.config = {
       defaultPriceTolerance: 1.0,
       symbolTolerances: {},
+      contractSizes: {
+        'BTC': 100,
+        'ETH': 100,
+        'BNB': 100,
+        'XRP': 100,
+        'ADA': 100,
+        'DOGE': 100,
+        'SOL': 100,
+        'AVAX': 100,
+        'MATIC': 100,
+        'DOT': 100,
+        'LINK': 100,
+        'UNI': 100,
+      },
       telegram: {
         enabled: false,
         token: "",

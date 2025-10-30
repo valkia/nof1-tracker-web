@@ -1,6 +1,7 @@
 export interface TradingConfig {
   defaultPriceTolerance: number;
   symbolTolerances: Record<string, number>;
+  contractSizes: Record<string, number>; // 合约面值配置
   telegram: {
     enabled: boolean;
     token: string;
@@ -15,6 +16,20 @@ export class ConfigManager {
     this.config = {
       defaultPriceTolerance: 1.0, // Default 1.0%
       symbolTolerances: {},
+      contractSizes: {
+        'BTC': 100,    // BTC合约面值100 USDT
+        'ETH': 100,    // ETH合约面值100 USDT
+        'BNB': 100,    // BNB合约面值100 USDT
+        'XRP': 100,    // XRP合约面值100 USDT
+        'ADA': 100,    // ADA合约面值100 USDT
+        'DOGE': 100,   // DOGE合约面值100 USDT
+        'SOL': 100,    // SOL合约面值100 USDT
+        'AVAX': 100,   // AVAX合约面值100 USDT
+        'MATIC': 100,  // MATIC合约面值100 USDT
+        'DOT': 100,    // DOT合约面值100 USDT
+        'LINK': 100,   // LINK合约面值100 USDT
+        'UNI': 100,    // UNI合约面值100 USDT
+      },
       telegram: {
         enabled: false,
         token: "",
@@ -31,6 +46,23 @@ export class ConfigManager {
       return this.config.symbolTolerances[symbol];
     }
     return this.config.defaultPriceTolerance;
+  }
+
+  /**
+   * 获取合约面值
+   */
+  getContractSize(symbol: string): number {
+    return this.config.contractSizes[symbol] || 100; // 默认100 USDT
+  }
+
+  /**
+   * 设置合约面值
+   */
+  setContractSize(symbol: string, size: number): void {
+    if (size <= 0) {
+      throw new Error('Contract size must be positive');
+    }
+    this.config.contractSizes[symbol] = size;
   }
 
   /**
@@ -86,6 +118,18 @@ export class ConfigManager {
       }
     });
 
+    // Load contract sizes from environment variables
+    // Format: BTC_CONTRACT_SIZE=100, ETH_CONTRACT_SIZE=100
+    Object.keys(process.env).forEach(key => {
+      if (key.endsWith('_CONTRACT_SIZE')) {
+        const symbol = key.replace('_CONTRACT_SIZE', '');
+        const size = parseFloat(process.env[key] || '');
+        if (!isNaN(size) && size > 0) {
+          this.config.contractSizes[symbol] = size;
+        }
+      }
+    });
+
     // Load Telegram configuration
     const telegramEnabled = process.env.TELEGRAM_ENABLED === 'true';
     const telegramToken = process.env.TELEGRAM_API_TOKEN || '';
@@ -102,6 +146,7 @@ export class ConfigManager {
     return {
       ...this.config,
       symbolTolerances: { ...this.config.symbolTolerances },
+      contractSizes: { ...this.config.contractSizes },
       telegram: { ...this.config.telegram }
     };
   }
@@ -120,6 +165,12 @@ export class ConfigManager {
       });
     }
 
+    if (config.contractSizes) {
+      Object.entries(config.contractSizes).forEach(([symbol, size]) => {
+        this.setContractSize(symbol, size);
+      });
+    }
+
     if (config.telegram) {
       this.setTelegramConfig(config.telegram.enabled, config.telegram.token, config.telegram.chatId);
     }
@@ -132,6 +183,20 @@ export class ConfigManager {
     this.config = {
       defaultPriceTolerance: 1.0,
       symbolTolerances: {},
+      contractSizes: {
+        'BTC': 100,    // BTC合约面值100 USDT
+        'ETH': 100,    // ETH合约面值100 USDT
+        'BNB': 100,    // BNB合约面值100 USDT
+        'XRP': 100,    // XRP合约面值100 USDT
+        'ADA': 100,    // ADA合约面值100 USDT
+        'DOGE': 100,   // DOGE合约面值100 USDT
+        'SOL': 100,    // SOL合约面值100 USDT
+        'AVAX': 100,   // AVAX合约面值100 USDT
+        'MATIC': 100,  // MATIC合约面值100 USDT
+        'DOT': 100,    // DOT合约面值100 USDT
+        'LINK': 100,   // LINK合约面值100 USDT
+        'UNI': 100,    // UNI合约面值100 USDT
+      },
       telegram: {
         enabled: false,
         token: "",
