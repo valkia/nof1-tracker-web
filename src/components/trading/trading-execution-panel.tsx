@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
+import { useFollowParams } from "@/hooks/useFollowParams";
 import type { AgentOverview } from "@/server/nof1/service";
 import type { TrackerSettings } from "@/server/nof1/settings";
 import type { FollowExecutionResponse } from "@/server/nof1/trading";
@@ -20,23 +21,15 @@ export function TradingExecutionPanel({
   const [selectedAgent, setSelectedAgent] = useState<string>(
     agents[0]?.modelId ?? "",
   );
-  const [priceTolerance, setPriceTolerance] = useState<number>(
-    settings.priceTolerance,
-  );
-  const [totalMargin, setTotalMargin] = useState<number>(
-    settings.totalMargin,
-  );
-  const [profitTarget, setProfitTarget] = useState<string>(
-    settings.profitTarget?.toString() ?? "",
-  );
-  const [autoRefollow, setAutoRefollow] = useState<boolean>(
-    settings.autoRefollow,
-  );
-  const [marginType, setMarginType] = useState<"CROSSED" | "ISOLATED">(
-    settings.marginType,
-  );
-  const [riskOnly, setRiskOnly] = useState<boolean>(settings.riskOnly);
+  const {
+    params,
+    setParams,
+    resetToSettings,
+    saveAsDefault,
+    hasSavedParams,
+  } = useFollowParams(settings);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isSavingDefault, setIsSavingDefault] = useState<boolean>(false);
   const [result, setResult] = useState<FollowExecutionResponse | null>(null);
 
   // 定时轮询状态
@@ -66,13 +59,18 @@ export function TradingExecutionPanel({
     : "Binance Futures 主网";
 
   useEffect(() => {
-    setPriceTolerance(settings.priceTolerance);
-    setTotalMargin(settings.totalMargin);
-    setProfitTarget(settings.profitTarget?.toString() ?? "");
-    setAutoRefollow(settings.autoRefollow);
-    setMarginType(settings.marginType);
-    setRiskOnly(settings.riskOnly);
-  }, [settings]);
+    // 当系统设置更新时，同步到当前参数（但保留用户保存的个性化参数）
+    if (!hasSavedParams) {
+      setParams({
+        priceTolerance: settings.priceTolerance,
+        totalMargin: settings.totalMargin,
+        profitTarget: settings.profitTarget?.toString() ?? "",
+        autoRefollow: settings.autoRefollow,
+        marginType: settings.marginType,
+        riskOnly: settings.riskOnly,
+      });
+    }
+  }, [settings, setParams, hasSavedParams]);
 
   // 停止自动执行
   const stopAutoExecute = useCallback(() => {
@@ -117,15 +115,15 @@ export function TradingExecutionPanel({
       const payload = {
         agentId: selectedAgent,
         options: {
-          priceTolerance,
-          totalMargin,
+          priceTolerance: params.priceTolerance,
+          totalMargin: params.totalMargin,
           profit:
-            profitTarget.trim().length > 0
-              ? Number.parseFloat(profitTarget)
+            params.profitTarget.trim().length > 0
+              ? Number.parseFloat(params.profitTarget)
               : undefined,
-          autoRefollow,
-          marginType,
-          riskOnly,
+          autoRefollow: params.autoRefollow,
+          marginType: params.marginType,
+          riskOnly: params.riskOnly,
         },
       };
 
@@ -149,7 +147,7 @@ export function TradingExecutionPanel({
 
       setResult(data.data as FollowExecutionResponse);
       setExecutionCount((prev) => prev + 1);
-      
+
       if (autoExecuteEnabled) {
         toast.success(`自动跟单执行完成 (第 ${executionCount + 1} 次)`);
       } else {
@@ -159,7 +157,7 @@ export function TradingExecutionPanel({
       const message =
         error instanceof Error ? error.message : "无法执行跟单操作";
       toast.error(message);
-      
+
       // 如果是自动执行模式且失败，停止自动执行
       if (autoExecuteEnabled) {
         stopAutoExecute();
@@ -172,12 +170,12 @@ export function TradingExecutionPanel({
   }, [
     selectedAgent,
     hasBinanceCredentials,
-    priceTolerance,
-    totalMargin,
-    profitTarget,
-    autoRefollow,
-    marginType,
-    riskOnly,
+    params.priceTolerance,
+    params.totalMargin,
+    params.profitTarget,
+    params.autoRefollow,
+    params.marginType,
+    params.riskOnly,
     autoExecuteEnabled,
     executionCount,
     onOpenSettings,
@@ -197,6 +195,7 @@ export function TradingExecutionPanel({
 
     // 立即执行一次
     executeFollow();
+    setCountdown(settings.interval);
 
     // 设置定时器
     timerRef.current = setInterval(() => {
@@ -292,6 +291,24 @@ export function TradingExecutionPanel({
           className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-3"
           onSubmit={handleSubmit}
         >
+          {hasSavedParams && (
+            <div className="sm:col-span-3">
+              <div className="flex items-center justify-between rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-2 w-2 rounded-full bg-blue-500"></span>
+                  <span>已加载上次保存的参数设置</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={resetToSettings}
+                  className="rounded-xl border border-blue-300 px-3 py-1 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
+                >
+                  重置为默认
+                </button>
+              </div>
+            </div>
+          )}
+
           <FormField label="目标 Agent">
             <select
               className="rounded-xl border border-surface-200 bg-white px-4 py-3 text-sm text-surface-700 shadow-sm transition hover:border-primary/40 focus:border-primary focus:outline-none"
@@ -311,13 +328,11 @@ export function TradingExecutionPanel({
               type="number"
               min={0.01}
               step={0.01}
-              value={priceTolerance}
-              onChange={(event) =>
-                setPriceTolerance(() => {
-                  const value = Number.parseFloat(event.target.value);
-                  return Number.isNaN(value) ? 0 : value;
-                })
-              }
+              value={params.priceTolerance}
+              onChange={(event) => {
+                const value = Number.parseFloat(event.target.value);
+                setParams({ priceTolerance: Number.isNaN(value) ? 0 : value });
+              }}
               className="w-full rounded-xl border border-surface-200 bg-white px-4 py-3 text-sm text-surface-700 shadow-sm transition hover:border-primary/40 focus:border-primary focus:outline-none"
             />
           </FormField>
@@ -327,13 +342,11 @@ export function TradingExecutionPanel({
               type="number"
               min={0}
               step={0.01}
-              value={totalMargin}
-              onChange={(event) =>
-                setTotalMargin(() => {
-                  const value = Number.parseFloat(event.target.value);
-                  return Number.isNaN(value) ? 0 : value;
-                })
-              }
+              value={params.totalMargin}
+              onChange={(event) => {
+                const value = Number.parseFloat(event.target.value);
+                setParams({ totalMargin: Number.isNaN(value) ? 0 : value });
+              }}
               className="w-full rounded-xl border border-surface-200 bg-white px-4 py-3 text-sm text-surface-700 shadow-sm transition hover:border-primary/40 focus:border-primary focus:outline-none"
             />
           </FormField>
@@ -346,8 +359,8 @@ export function TradingExecutionPanel({
               type="number"
               min={0}
               step={0.1}
-              value={profitTarget}
-              onChange={(event) => setProfitTarget(event.target.value)}
+              value={params.profitTarget}
+              onChange={(event) => setParams({ profitTarget: event.target.value })}
               className="w-full rounded-xl border border-surface-200 bg-white px-4 py-3 text-sm text-surface-700 shadow-sm transition hover:border-primary/40 focus:border-primary focus:outline-none"
             />
           </FormField>
@@ -359,8 +372,8 @@ export function TradingExecutionPanel({
                   type="radio"
                   name="marginType"
                   value="CROSSED"
-                  checked={marginType === "CROSSED"}
-                  onChange={() => setMarginType("CROSSED")}
+                  checked={params.marginType === "CROSSED"}
+                  onChange={() => setParams({ marginType: "CROSSED" })}
                 />
                 全仓
               </label>
@@ -369,8 +382,8 @@ export function TradingExecutionPanel({
                   type="radio"
                   name="marginType"
                   value="ISOLATED"
-                  checked={marginType === "ISOLATED"}
-                  onChange={() => setMarginType("ISOLATED")}
+                  checked={params.marginType === "ISOLATED"}
+                  onChange={() => setParams({ marginType: "ISOLATED" })}
                 />
                 逐仓
               </label>
@@ -382,8 +395,8 @@ export function TradingExecutionPanel({
               <label className="inline-flex items-center gap-2 rounded-xl border border-surface-200 bg-white px-4 py-3 text-surface-600 transition hover:border-primary/40">
                 <input
                   type="checkbox"
-                  checked={autoRefollow}
-                  onChange={(event) => setAutoRefollow(event.target.checked)}
+                  checked={params.autoRefollow}
+                  onChange={(event) => setParams({ autoRefollow: event.target.checked })}
                 />
                 盈利目标后自动再次跟随
               </label>
@@ -391,8 +404,8 @@ export function TradingExecutionPanel({
               <label className="inline-flex items-center gap-2 rounded-xl border border-surface-200 bg-white px-4 py-3 text-surface-600 transition hover:border-primary/40">
                 <input
                   type="checkbox"
-                  checked={riskOnly}
-                  onChange={(event) => setRiskOnly(event.target.checked)}
+                  checked={params.riskOnly}
+                  onChange={(event) => setParams({ riskOnly: event.target.checked })}
                 />
                 仅进行风险评估 (不真实下单)
               </label>
@@ -401,7 +414,7 @@ export function TradingExecutionPanel({
 
           <div className="sm:col-span-2 lg:col-span-3">
             <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <button
                   type="submit"
                   disabled={isSubmitting || !hasBinanceCredentials || autoExecuteEnabled}
@@ -409,7 +422,7 @@ export function TradingExecutionPanel({
                 >
                   {isSubmitting ? "执行中..." : "执行跟单"}
                 </button>
-                
+
                 <button
                   type="button"
                   onClick={toggleAutoExecute}
@@ -421,6 +434,24 @@ export function TradingExecutionPanel({
                   }`}
                 >
                   {autoExecuteEnabled ? "⏸ 停止定时执行" : "▶ 启动定时执行"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsSavingDefault(true);
+                    const success = await saveAsDefault();
+                    if (success) {
+                      toast.success("当前参数已保存为系统默认设置");
+                    } else {
+                      toast.error("保存为默认设置失败");
+                    }
+                    setIsSavingDefault(false);
+                  }}
+                  disabled={isSavingDefault || isSubmitting}
+                  className="inline-flex items-center justify-center rounded-2xl bg-indigo-500 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-surface-300 disabled:text-surface-600"
+                >
+                  {isSavingDefault ? "保存中..." : "保存为默认"}
                 </button>
               </div>
               

@@ -59,9 +59,59 @@
       "side": "BUY",
       "quantity": 0.06,
       "price": 1084.992
+    },
+    {
+      "entryOid": 217382145836,
+      "symbol": "ETH",
+      "agent": "deepseek-chat-v3.1",
+      "timestamp": 1761847282872,
+      "orderId": "8389766000967213000",
+      "side": "BUY",
+      "quantity": 0.019,
+      "price": 3765.6
+    },
+    {
+      "entryOid": 217361175271,
+      "symbol": "SOL",
+      "agent": "deepseek-chat-v3.1",
+      "timestamp": 1761847721832,
+      "orderId": "165363986941",
+      "side": "BUY",
+      "quantity": 1.01,
+      "price": 181.53
+    },
+    {
+      "entryOid": 217438394894,
+      "symbol": "DOGE",
+      "agent": "deepseek-chat-v3.1",
+      "timestamp": 1761853002510,
+      "orderId": "86030708865",
+      "side": "BUY",
+      "quantity": 152,
+      "price": 0.1784
+    },
+    {
+      "entryOid": 217495038042,
+      "symbol": "SOL",
+      "agent": "deepseek-chat-v3.1",
+      "timestamp": 1761856603235,
+      "orderId": "165431209614",
+      "side": "BUY",
+      "quantity": 0.04,
+      "price": 179.9279
+    },
+    {
+      "entryOid": 217692868889,
+      "symbol": "DOGE",
+      "agent": "deepseek-chat-v3.1",
+      "timestamp": 1761871721624,
+      "orderId": "86045989435",
+      "side": "SELL",
+      "quantity": 244.8741555710461,
+      "price": 0.183397
     }
   ],
   "profitExits": [],
-  "lastUpdated": 1761840019470,
+  "lastUpdated": 1761871721624,
   "createdAt": 1761715854380
 }

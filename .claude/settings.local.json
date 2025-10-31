@@ -10,7 +10,14 @@
       "Bash(node test\\config-reset-test.js:*)",
       "Bash(node config-reset-test.js:*)",
       "Bash(node risk-manager-test.js:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(node test-syntax.ts:*)",
+      "Bash(chmod:*)",
+      "Bash(./test-syntax.sh:*)",
+      "Bash(npx next build:*)",
+      "Bash(npm run test-functionality)",
+      "Bash(node test-functionality.ts:*)",
+      "Bash(node test-browser.ts)"
     ],
     "deny": [],
     "ask": []
