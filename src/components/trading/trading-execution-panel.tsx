@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { useFollowParams } from "@/hooks/useFollowParams";
+import { PositionPanel } from "./position-panel";
 import type { AgentOverview } from "@/server/nof1/service";
 import type { TrackerSettings } from "@/server/nof1/settings";
 import type { FollowExecutionResponse } from "@/server/nof1/trading";
@@ -18,9 +19,11 @@ export function TradingExecutionPanel({
   settings,
   onOpenSettings,
 }: TradingExecutionPanelProps) {
-  const [selectedAgent, setSelectedAgent] = useState<string>(
-    agents[0]?.modelId ?? "",
-  );
+  const [selectedAgent, setSelectedAgent] = useState<string>(() => {
+    // 从 localStorage 恢复上次选择的 Agent
+    const savedAgent = localStorage.getItem("nof1-selected-agent");
+    return savedAgent || agents[0]?.modelId || "";
+  });
   const {
     params,
     setParams,
@@ -59,18 +62,25 @@ export function TradingExecutionPanel({
     : "Binance Futures 主网";
 
   useEffect(() => {
-    // 当系统设置更新时，同步到当前参数（但保留用户保存的个性化参数）
-    if (!hasSavedParams) {
-      setParams({
-        priceTolerance: settings.priceTolerance,
-        totalMargin: settings.totalMargin,
-        profitTarget: settings.profitTarget?.toString() ?? "",
-        autoRefollow: settings.autoRefollow,
-        marginType: settings.marginType,
-        riskOnly: settings.riskOnly,
-      });
+    // 保存当前选择的 Agent 到 localStorage
+    localStorage.setItem("nof1-selected-agent", selectedAgent);
+  }, [selectedAgent]);
+
+  // 当 agents 列表变化时，确保 selectedAgent 仍然有效
+  useEffect(() => {
+    if (agents.length > 0) {
+      const validAgentIds = new Set(agents.map(agent => agent.modelId));
+      if (!validAgentIds.has(selectedAgent)) {
+        // 如果当前选择的 Agent 不在列表中，选择第一个
+        const savedAgent = localStorage.getItem("nof1-selected-agent");
+        if (savedAgent && validAgentIds.has(savedAgent)) {
+          setSelectedAgent(savedAgent);
+        } else {
+          setSelectedAgent(agents[0]?.modelId || "");
+        }
+      }
     }
-  }, [settings, setParams, hasSavedParams]);
+  }, [agents, selectedAgent]);
 
   // 停止自动执行
   const stopAutoExecute = useCallback(() => {
@@ -268,6 +278,17 @@ export function TradingExecutionPanel({
           快速打开设置
         </button>
       </header>
+
+      {/* 持仓展示区域 */}
+      {hasBinanceCredentials && (
+        <div className="mt-6">
+          <PositionPanel
+            apiKey={settings.binance.apiKey}
+            apiSecret={settings.binance.apiSecret}
+            testnet={settings.binance.testnet}
+          />
+        </div>
+      )}
 
       {!hasBinanceCredentials ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700">
@@ -485,7 +506,9 @@ export function TradingExecutionPanel({
       )}
 
       {result ? (
-        <ExecutionResultPanel result={result} />
+        <div className="mt-8 space-y-4 rounded-3xl border border-surface-200 bg-surface-50/80 p-6 animate-in fade-in duration-300">
+          <ExecutionResultPanel result={result} />
+        </div>
       ) : null}
     </section>
   );
@@ -539,8 +562,14 @@ function ExecutionResultPanel({ result }: ExecutionResultPanelProps) {
       </header>
 
       <div className="space-y-3">
-        {result.plans.map((plan) => (
-          <PlanResultCard key={plan.tradingPlan.id} plan={plan} />
+        {result.plans.map((plan, index) => (
+          <div
+            key={plan.tradingPlan.id}
+            className="animate-in fade-in slide-in-from-right-[20px] duration-500"
+            style={{ animationDelay: `${index * 100}ms` }}
+          >
+            <PlanResultCard plan={plan} />
+          </div>
         ))}
       </div>
     </div>
