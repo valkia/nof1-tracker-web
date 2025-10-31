@@ -508,17 +508,17 @@ export class FollowService {
   /**
    * 直接基于实际持仓生成进入计划（避免先卖后买的循环）
    */
-  private generateDirectEntryChanges(
+  private async generateDirectEntryChanges(
     currentPositions: Position[],
     options?: FollowOptions
-  ): PositionChange[] {
+  ): Promise<PositionChange[]> {
     const changes: PositionChange[] = [];
 
     for (const currentPosition of currentPositions) {
       if (currentPosition.quantity !== 0) {
         // 检查盈利目标
         if (options?.profitTarget) {
-          const profitPercentage = this.calculateProfitPercentageSync(currentPosition);
+          const profitPercentage = await this.calculateProfitPercentage(currentPosition);
           if (profitPercentage >= options.profitTarget) {
             changes.push({
               symbol: currentPosition.symbol,
@@ -528,6 +528,37 @@ export class FollowService {
             });
             continue;
           }
+        }
+
+        // 检查是否已经有相同的仓位在Binance上，避免重复建仓
+        try {
+          const binancePositions = await this.positionManager['binanceService'].getPositions();
+          const targetSymbol = this.positionManager['binanceService'].convertSymbol(currentPosition.symbol);
+          const existingPosition = binancePositions.find(
+            p => p.symbol === targetSymbol && parseFloat(p.positionAmt) !== 0
+          );
+
+          if (existingPosition) {
+            // 如果Binance上已经有仓位，检查是否需要调整
+            const positionAmt = parseFloat(existingPosition.positionAmt);
+            const currentPositionSign = Math.sign(currentPosition.quantity);
+            const existingPositionSign = Math.sign(positionAmt);
+
+            // 如果方向相同，且数量相近，跳过这个仓位
+            if (currentPositionSign === existingPositionSign) {
+              const quantityDiff = Math.abs(Math.abs(currentPosition.quantity) - Math.abs(positionAmt));
+              const entryPriceDiff = Math.abs(currentPosition.entry_price - parseFloat(existingPosition.entryPrice));
+
+              // 如果数量和价格都很接近，认为是同一个仓位，跳过
+              if (quantityDiff < Math.abs(currentPosition.quantity) * 0.1 &&
+                  entryPriceDiff < currentPosition.entry_price * 0.05) {
+                logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Skipping ${currentPosition.symbol} - existing position matches current position`);
+                continue;
+              }
+            }
+          }
+        } catch (error) {
+          logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to check existing Binance positions: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
 
         // 直接生成进入计划，不与历史对比
