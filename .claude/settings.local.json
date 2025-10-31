@@ -17,7 +17,8 @@
       "Bash(npx next build:*)",
       "Bash(npm run test-functionality)",
       "Bash(node test-functionality.ts:*)",
-      "Bash(node test-browser.ts)"
+      "Bash(node test-browser.ts)",
+      "Bash(npm test:*)"
     ],
     "deny": [],
     "ask": []

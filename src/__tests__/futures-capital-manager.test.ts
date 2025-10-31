@@ -108,6 +108,28 @@ describe('FuturesCapitalManager', () => {
     expect(xrpAllocation!.side).toBe('SELL'); // quantity为负数
   });
 
+  it('should use net worth instead of available balance when provided', () => {
+    const totalMargin = 1000;
+    const availableBalance = 500; // 小于 totalMargin
+    const netWorth = 2000; // 大于 totalMargin
+
+    const result = capitalManager.allocateMargin(mockPositions, totalMargin, availableBalance, netWorth);
+
+    // 当提供 netWorth 且大于 totalMargin 时，应该使用 totalMargin
+    expect(result.totalAllocatedMargin).toBeCloseTo(998, 0);
+  });
+
+  it('should fall back to available balance when net worth is insufficient', () => {
+    const totalMargin = 1000;
+    const availableBalance = 500; // 小于 totalMargin
+    const netWorth = 300; // 小于 availableBalance
+
+    const result = capitalManager.allocateMargin(mockPositions, totalMargin, availableBalance, netWorth);
+
+    // 当 netWorth 小于 totalMargin 时，应该使用 netWorth
+    expect(result.totalAllocatedMargin).toBeLessThan(500);
+  });
+
   it('should calculate adjusted quantities correctly', () => {
     const totalMargin = 1000;
     const result = capitalManager.allocateMargin(mockPositions, totalMargin);

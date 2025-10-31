@@ -709,18 +709,40 @@ export class FollowService {
       return;
     }
 
-    // 获取可用余额
+    // 获取可用余额和持仓信息来计算净资产
     let availableBalance: number | undefined;
+    let netWorth: number | undefined;
     try {
       const accountInfo = await this.tradingExecutor.getAccountInfo();
       availableBalance = parseFloat(accountInfo.availableBalance);
-      logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Available account balance: ${availableBalance.toFixed(2)} USDT`);
+
+      // 获取持仓信息计算净资产
+      const positions = await this.tradingExecutor.getPositions();
+      const totalPositionMargin = positions.reduce((sum, pos) => {
+        const positionAmt = Math.abs(parseFloat(pos.positionAmt));
+        const entryPrice = parseFloat(pos.entryPrice);
+        const leverage = parseFloat(pos.leverage);
+        const margin = (positionAmt * entryPrice) / leverage;
+        return sum + margin;
+      }, 0);
+
+      const totalUnrealizedPnL = positions.reduce((sum, pos) => {
+        return sum + parseFloat(pos.unRealizedProfit);
+      }, 0);
+
+      // 计算净资产 = 可用余额 + 持仓保证金 + 浮动盈亏
+      netWorth = availableBalance + totalPositionMargin + totalUnrealizedPnL;
+
+      logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Available balance: ${availableBalance.toFixed(2)} USDT`);
+      logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Total position margin: ${totalPositionMargin.toFixed(2)} USDT`);
+      logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Total unrealized P&L: ${totalUnrealizedPnL.toFixed(2)} USDT`);
+      logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Net worth: ${netWorth.toFixed(2)} USDT`);
     } catch (balanceError) {
       logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to get account balance: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`);
     }
 
-    // 执行资金分配
-    const allocationResult = this.capitalManager.allocateMargin(positionsForAllocation, totalMargin, availableBalance);
+    // 执行资金分配（优先使用净资产）
+    const allocationResult = this.capitalManager.allocateMargin(positionsForAllocation, totalMargin, availableBalance, netWorth);
 
     // 显示分配信息
     this.displayCapitalAllocation(allocationResult, agentId);

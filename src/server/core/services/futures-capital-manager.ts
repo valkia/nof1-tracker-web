@@ -26,20 +26,26 @@ export class FuturesCapitalManager {
    * @param positions Agent�Ĳ�λ��Ϣ
    * @param totalMargin �û��趨���ܱ�֤��
    * @param availableBalance ��������ѡ�����ڼ���Ƿ����㹻�ʽ�
+   * @param netWorth �����ʣ���ѡ�������ʹ������ʣ���������Ѻ��保证金+�߶�ӯ��
    * @param maxLeverage ��������ܸˣ���ѡ������ѹ����λ�ܸˣ�
    */
   allocateMargin(
     positions: Position[],
     totalMargin?: number,
     availableBalance?: number,
+    netWorth?: number,
     maxLeverage?: number,
   ): CapitalAllocationResult {
     let totalMarginToUse = totalMargin ?? this.defaultTotalMargin;
 
-    if (availableBalance !== undefined && availableBalance > 0 && totalMarginToUse > availableBalance) {
-      console.warn(`?? Insufficient available balance: Required ${totalMarginToUse.toFixed(2)} USDT, Available ${availableBalance.toFixed(2)} USDT`);
-      console.warn(`?? Reducing allocation to available balance: ${availableBalance.toFixed(2)} USDT`);
-      totalMarginToUse = availableBalance;
+    // 优先使用净资产，其次使用可用余额
+    const effectiveBalance = netWorth !== undefined ? netWorth : availableBalance;
+
+    if (effectiveBalance !== undefined && effectiveBalance > 0 && totalMarginToUse > effectiveBalance) {
+      const balanceType = netWorth !== undefined ? 'Net worth' : 'Available balance';
+      console.warn(`?? Insufficient ${balanceType.toLowerCase()}: Required ${totalMarginToUse.toFixed(2)} USDT, ${balanceType}: ${effectiveBalance.toFixed(2)} USDT`);
+      console.warn(`?? Reducing allocation to ${balanceType.toLowerCase()}: ${effectiveBalance.toFixed(2)} USDT`);
+      totalMarginToUse = effectiveBalance;
     }
 
     const prepared = positions

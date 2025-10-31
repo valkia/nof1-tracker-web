@@ -26,16 +26,21 @@ export class FuturesCapitalManager {
    * @param positions Agent的仓位信息
    * @param totalMargin 用户设定的总保证金
    * @param availableBalance 可用余额（可选，用于检查是否有足够资金）
+   * @param netWorth 净资产（可选，优先使用净资产计算，包含可用余额+持仓保证金+浮动盈亏）
    */
-  allocateMargin(positions: Position[], totalMargin?: number, availableBalance?: number): CapitalAllocationResult {
+  allocateMargin(positions: Position[], totalMargin?: number, availableBalance?: number, netWorth?: number): CapitalAllocationResult {
     let totalMarginToUse = totalMargin || this.defaultTotalMargin;
 
-    // 如果提供了可用余额，检查是否足够
-    if (availableBalance && totalMarginToUse > availableBalance) {
-      console.warn(`⚠️ Insufficient available balance: Required ${totalMarginToUse.toFixed(2)} USDT, Available ${availableBalance.toFixed(2)} USDT`);
-      console.warn(`💡 Reducing allocation to available balance: ${availableBalance.toFixed(2)} USDT`);
-      // 如果没有足够余额，使用可用余额作为总保证金
-      totalMarginToUse = availableBalance;
+    // 优先使用净资产，其次使用可用余额
+    const effectiveBalance = netWorth !== undefined ? netWorth : availableBalance;
+
+    // 如果提供了有效余额，检查是否足够
+    if (effectiveBalance && totalMarginToUse > effectiveBalance) {
+      const balanceType = netWorth !== undefined ? 'Net worth' : 'Available balance';
+      console.warn(`⚠️ Insufficient ${balanceType.toLowerCase()}: Required ${totalMarginToUse.toFixed(2)} USDT, ${balanceType}: ${effectiveBalance.toFixed(2)} USDT`);
+      console.warn(`💡 Reducing allocation to ${balanceType.toLowerCase()}: ${effectiveBalance.toFixed(2)} USDT`);
+      // 如果没有足够资金，使用有效余额作为总保证金
+      totalMarginToUse = effectiveBalance;
     }
 
     // 过滤出有效的仓位（margin > 0）

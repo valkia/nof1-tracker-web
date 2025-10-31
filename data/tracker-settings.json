@@ -1,7 +1,7 @@
 {
   "priceTolerance": 1,
   "symbolTolerances": [],
-  "totalMargin": 100,
+  "totalMargin": 50,
   "profitTarget": null,
   "autoRefollow": false,
   "marginType": "CROSSED",
