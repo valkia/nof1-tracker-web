@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import { BinanceService } from "@/services/binance-service";
 import type { PositionResponse } from "@/server/core/services/binance-service";
@@ -19,6 +19,7 @@ interface PositionData {
   leverage: number;
   marginType: string;
   isolatedMargin: number;
+  isolatedWallet: number; // 新增：逐仓钱包余额
   positionSide: string;
   notional: number;
   updateTime: number;
@@ -29,8 +30,13 @@ export function PositionPanel({ apiKey, apiSecret, testnet }: PositionPanelProps
   const [loading, setLoading] = useState<boolean>(false);
   const [totalUnrealizedPnl, setTotalUnrealizedPnl] = useState<number>(0);
   const [totalNotional, setTotalNotional] = useState<number>(0);
+  const [totalMargin, setTotalMargin] = useState<number>(0); // 新增：总保证金
   const [refreshInterval, setRefreshInterval] = useState<number>(30); // 默认30秒刷新
   const [isAutoRefresh, setIsAutoRefresh] = useState<boolean>(true);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof PositionData; direction: 'asc' | 'desc' }>({
+    key: 'symbol',
+    direction: 'asc'
+  });
 
   // 防抖定时器引用
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -78,7 +84,13 @@ export function PositionPanel({ apiKey, apiSecret, testnet }: PositionPanelProps
 
     try {
       const binanceService = new BinanceService(apiKey, apiSecret, testnet);
-      const rawPositions = await binanceService.getPositions();
+      const [rawPositions, accountInfo] = await Promise.all([
+        binanceService.getPositions(),
+        binanceService.getAccountInfo()
+      ]);
+
+      // 从账户信息中获取保证金余额
+      const marginBalance = accountInfo.totalMarginBalance || accountInfo.totalWalletBalance || 0;
 
       const formattedPositions = rawPositions
         .map((pos: PositionResponse) => ({
@@ -91,6 +103,7 @@ export function PositionPanel({ apiKey, apiSecret, testnet }: PositionPanelProps
           leverage: parseInt(pos.leverage),
           marginType: pos.marginType,
           isolatedMargin: parseFloat(pos.isolatedMargin),
+          isolatedWallet: parseFloat(pos.isolatedWallet),
           positionSide: pos.positionSide,
           notional: parseFloat(pos.notional),
           updateTime: pos.updateTime,
@@ -103,6 +116,7 @@ export function PositionPanel({ apiKey, apiSecret, testnet }: PositionPanelProps
 
       setTotalUnrealizedPnl(totalPnl);
       setTotalNotional(totalNotionalValue);
+      setTotalMargin(parseFloat(marginBalance)); // 使用账户级别的保证金余额
       setPositions(formattedPositions);
       lastRefreshRef.current = now;
 
@@ -118,6 +132,43 @@ export function PositionPanel({ apiKey, apiSecret, testnet }: PositionPanelProps
       }
     }
   }, [apiKey, apiSecret, testnet, positions.length]);
+
+  const sortedPositions = useMemo(() => {
+    const sorted = [...positions].sort((a, b) => {
+      let aValue = a[sortConfig.key];
+      let bValue = b[sortConfig.key];
+
+      // 处理不同数据类型的排序
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
+      }
+
+      if (aValue < bValue) {
+        return sortConfig.direction === 'asc' ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return sortConfig.direction === 'asc' ? 1 : -1;
+      }
+      return 0;
+    });
+    return sorted;
+  }, [positions, sortConfig]);
+
+  const requestSort = (key: keyof PositionData) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getSortIndicator = (key: keyof PositionData) => {
+    if (sortConfig.key !== key) {
+      return '⇅';
+    }
+    return sortConfig.direction === 'asc' ? '↑' : '↓';
+  };
 
   useEffect(() => {
     if (isAutoRefresh) {
@@ -215,9 +266,9 @@ export function PositionPanel({ apiKey, apiSecret, testnet }: PositionPanelProps
           </div>
 
           <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-            <p className="text-xs text-blue-600">持仓名义价值</p>
+            <p className="text-xs text-blue-600">保证金余额</p>
             <p className="text-lg font-semibold text-blue-700">
-              ${formatNumber(totalNotional, 2)}
+              ${formatNumber(totalMargin, 2)}
             </p>
           </div>
 
@@ -247,112 +298,166 @@ export function PositionPanel({ apiKey, apiSecret, testnet }: PositionPanelProps
           </div>
         ) : (
           <div className="space-y-3">
-            {positions.map((position) => {
-              const pnlPercentage = position.entryPrice > 0
-                ? ((position.markPrice - position.entryPrice) / position.entryPrice) * position.leverage * (position.positionAmt > 0 ? 1 : -1)
-                : 0;
-
-              return (
-                <div
-                  key={`${position.symbol}-${position.positionSide}`}
-                  className="rounded-xl border border-surface-100 bg-white p-4 shadow-sm transition-all duration-300 ease-in-out hover:shadow-md"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-3 h-3 rounded-full ${position.positionAmt > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+            {/* 表头 */}
+                  <div className="flex items-center justify-between gap-4 px-4 py-2 bg-surface-50 border-b border-surface-100">
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className="w-2 h-2 rounded-full opacity-0"></div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-lg font-semibold text-surface-900">
-                            {position.symbol}
-                          </span>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            position.positionAmt > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                          }`}>
-                            {position.positionAmt > 0 ? '多头' : '空头'}
-                          </span>
-                          <span className="text-xs text-surface-500">
-                            {position.marginType === 'CROSSED' ? '全仓' : '逐仓'}
-                          </span>
+                          <button
+                            onClick={() => requestSort('symbol')}
+                            className="text-xs font-medium text-surface-600 hover:text-surface-900 transition-colors whitespace-nowrap"
+                          >
+                            交易对 {getSortIndicator('symbol')}
+                          </button>
+                          <span className="text-xs text-surface-400">方向</span>
+                          <span className="text-xs text-surface-400">类型</span>
                         </div>
-                        <div className="text-xs text-surface-500">
-                          杠杆: {position.leverage}x | 方向: {position.positionSide}
+                        <div className="flex items-center gap-3 text-xs text-surface-400">
+                          <span>杠杆</span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 text-right">
-                      <div>
-                        <p className="text-xs text-surface-500">数量</p>
-                        <p className="text-sm font-medium text-surface-900">
-                          {formatNumber(Math.abs(position.positionAmt), 3)}张
-                        </p>
+                    {/* 表头网格 - 与数据行完全对齐 */}
+                    <div className="grid grid-cols-6 gap-6 flex-shrink-0 w-[640px]">
+                      <div className="text-right">
+                        <button
+                          onClick={() => requestSort('positionAmt')}
+                          className="text-xs font-medium text-surface-600 hover:text-surface-900 transition-colors whitespace-nowrap"
+                        >
+                          数量 {getSortIndicator('positionAmt')}
+                        </button>
                       </div>
 
-                      <div>
-                        <p className="text-xs text-surface-500">开仓价</p>
-                        <p className="text-sm font-medium text-surface-900">
-                          ${formatNumber(position.entryPrice, 2)}
-                        </p>
+                      <div className="text-right">
+                        <button
+                          onClick={() => requestSort('entryPrice')}
+                          className="text-xs font-medium text-surface-600 hover:text-surface-900 transition-colors whitespace-nowrap"
+                        >
+                          开仓 {getSortIndicator('entryPrice')}
+                        </button>
                       </div>
 
-                      <div>
-                        <p className="text-xs text-surface-500">标记价</p>
-                        <p className="text-sm font-medium text-surface-900">
-                          ${formatNumber(position.markPrice, 2)}
-                        </p>
+                      <div className="text-right">
+                        <button
+                          onClick={() => requestSort('markPrice')}
+                          className="text-xs font-medium text-surface-600 hover:text-surface-900 transition-colors whitespace-nowrap"
+                        >
+                          标记 {getSortIndicator('markPrice')}
+                        </button>
                       </div>
 
-                      <div>
-                        <p className="text-xs text-surface-500">盈亏</p>
-                        <p className={`text-sm font-medium ${getColorClass(position.unrealizedPnl)}`}>
-                          ${formatNumber(position.unrealizedPnl, 2)}
-                          <span className="ml-1 text-xs text-surface-400">
-                            ({formatNumber(pnlPercentage, 2)}%)
-                          </span>
-                        </p>
+                      <div className="text-right">
+                        <button
+                          onClick={() => requestSort('unrealizedPnl')}
+                          className="text-xs font-medium text-surface-600 hover:text-surface-900 transition-colors whitespace-nowrap"
+                        >
+                          盈亏 {getSortIndicator('unrealizedPnl')}
+                        </button>
                       </div>
 
-                      {position.marginType === 'ISOLATED' && (
-                        <div>
-                          <p className="text-xs text-surface-500">逐仓保证金</p>
-                          <p className="text-sm font-medium text-surface-900">
-                            ${formatNumber(position.isolatedMargin, 2)}
-                          </p>
-                        </div>
-                      )}
+                      <div className="text-right">
+                        <button
+                          onClick={() => requestSort('liquidationPrice')}
+                          className="text-xs font-medium text-surface-600 hover:text-surface-900 transition-colors whitespace-nowrap"
+                        >
+                          强平 {getSortIndicator('liquidationPrice')}
+                        </button>
+                      </div>
 
-                      <div>
-                        <p className="text-xs text-surface-500">强平价</p>
-                        <p className="text-sm font-medium text-amber-600">
-                          ${formatNumber(position.liquidationPrice, 2)}
-                        </p>
+                      <div className="text-right">
+                        <button
+                          onClick={() => requestSort('isolatedMargin')}
+                          className="text-xs font-medium text-surface-600 hover:text-surface-900 transition-colors whitespace-nowrap"
+                        >
+                          保证金 {getSortIndicator('isolatedMargin')}
+                        </button>
                       </div>
                     </div>
                   </div>
 
-                  {/* 进度条显示当前价格相对于开仓价和强平价的位置 */}
-                  <div className="mt-3">
-                    <div className="w-full bg-surface-100 rounded-full h-2">
+                  {/* 持仓列表 */}
+                  {sortedPositions.map((position) => {
+                    const pnlPercentage = position.entryPrice > 0
+                      ? ((position.markPrice - position.entryPrice) / position.entryPrice) * position.leverage * 100 * (position.positionAmt > 0 ? 1 : -1)
+                      : 0;
+
+                    return (
                       <div
-                        className="h-2 rounded-full bg-blue-500 relative transition-all duration-500 ease-in-out"
-                        style={{
-                          width: `${Math.min(Math.max(0, ((position.markPrice - position.liquidationPrice) / (position.entryPrice - position.liquidationPrice)) * 100), 100)}%`
-                        }}
+                        key={`${position.symbol}-${position.positionSide}`}
+                        className="flex items-center justify-between gap-4 px-4 py-3 border-b border-surface-100 last:border-b-0 hover:bg-surface-50 transition-colors duration-150 ease-in-out"
                       >
-                        <div className="absolute inset-0 flex items-center justify-end pr-1">
-                          <div className="w-1 h-3 bg-red-500 rounded"></div>
+                        {/* 左侧：基本信息 */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${position.positionAmt > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-surface-900 truncate">
+                                {position.symbol}
+                              </span>
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                                position.positionAmt > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                              }`}>
+                                {position.positionAmt > 0 ? '多' : '空'}
+                              </span>
+                              <span className="text-xs text-surface-500">
+                                {position.marginType === 'CROSSED' ? '全仓' : '逐仓'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-surface-500">
+                              <span>杠杆 {position.leverage}x</span>
+                              <span>方向 {position.positionSide}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 右侧：核心数据 - 网格对齐 */}
+                        <div className="grid grid-cols-6 gap-6 flex-shrink-0 w-[640px]">
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-surface-900">
+                              ${formatNumber(Math.abs(position.positionAmt) * position.entryPrice, 2)}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-surface-900">
+                              ${formatNumber(position.entryPrice, 2)}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-surface-900">
+                              ${formatNumber(position.markPrice, 2)}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className={`text-sm font-medium ${getColorClass(position.unrealizedPnl)}`}>
+                              ${formatNumber(position.unrealizedPnl, 2)}
+                              {pnlPercentage !== 0 && (
+                                <span className="ml-1 text-xs text-surface-400">
+                                  ({formatNumber(pnlPercentage, 1)}%)
+                                </span>
+                              )}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-amber-600">
+                              ${formatNumber(position.liquidationPrice, 2)}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-surface-900">
+                              ${formatNumber(position.isolatedMargin > 0 ? position.isolatedMargin : position.notional / position.leverage, 2)}
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex justify-between text-xs text-surface-400 mt-1">
-                      <span>强平价 ${formatNumber(position.liquidationPrice, 2)}</span>
-                      <span>标记价 ${formatNumber(position.markPrice, 2)}</span>
-                      <span>开仓价 ${formatNumber(position.entryPrice, 2)}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                    );
+                  })}
           </div>
         )}
       </div>
