@@ -393,13 +393,10 @@ export class FollowService {
       logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Profit target disabled: using agent's original exit plan only`);
     }
 
-    // 0. 重新加载订单历史,确保使用最新数据(支持手动修改文件)
-    this.orderHistoryManager.reloadHistory();
-
-    // 1. 清理孤立的挂单 (没有对应仓位的止盈止损单)
+    // 0. 清理孤立的挂单 (没有对应仓位的止盈止损单)
     await this.positionManager.cleanOrphanedOrders();
 
-    // 2. 新增：验证持仓一致性
+    // 1. 新增：验证持仓一致性
     logInfo(`${LOGGING_CONFIG.EMOJIS.SEARCH} Validating position consistency before processing`);
     const validationResult = await this.validatePositionConsistency(agentId, currentPositions);
 
@@ -436,7 +433,7 @@ export class FollowService {
       }
     }
 
-    // 3. 根据验证结果决定使用哪种状态
+    // 2. 根据验证结果决定使用哪种状态
     if (useActualPositions === false) {
       if (validationResult.isConsistent) {
         // 状态一致，使用历史重建的位置
@@ -472,7 +469,7 @@ export class FollowService {
 
     const followPlans: FollowPlan[] = [];
 
-    // 4. 检测仓位变化 - 如果信任实际持仓，则跳过对比直接生成跟随计划
+    // 3. 检测仓位变化 - 如果信任实际持仓，则跳过对比直接生成跟随计划
     let changes: PositionChange[];
     if (useActualPositions) {
       // 直接基于实际持仓生成进入计划（避免先卖后买的循环）
@@ -482,24 +479,20 @@ export class FollowService {
       changes = await this.detectPositionChanges(currentPositions, previousPositions || [], options);
     }
 
-    // 5. 处理每种变化
+    // 4. 处理每种变化
     for (const change of changes) {
       const plans = await this.handlePositionChange(change, agentId, options, useActualPositions);
       followPlans.push(...plans);
     }
 
-    // 6. 检查止盈止损条件
+    // 5. 检查止盈止损条件
     const exitPlans = this.checkExitConditions(currentPositions, agentId);
     followPlans.push(...exitPlans);
 
-    // 7. 应用资金分配
+    // 6. 应用资金分配
     if (options?.totalMargin && options.totalMargin > 0) {
       await this.applyCapitalAllocation(followPlans, currentPositions, options!.totalMargin, agentId);
     }
-
-    // 8. 注意：不要在这里更新 lastPositions！
-    // lastPositions 应该在订单成功执行后才更新（在 PositionManager 中）
-    // 这样才能确保只有真正执行的订单才会被记录
 
     logInfo(`${LOGGING_CONFIG.EMOJIS.SUCCESS} Generated ${followPlans.length} follow plan(s) for agent ${agentId}`);
     return followPlans;
@@ -514,12 +507,21 @@ export class FollowService {
   ): Promise<PositionChange[]> {
     const changes: PositionChange[] = [];
 
+    // 记录总的currentPositions信息
+    logDebug(`${LOGGING_CONFIG.EMOJIS.SEARCH} generateDirectEntryChanges: Processing ${currentPositions.length} positions`);
+    currentPositions.forEach(pos => {
+      logDebug(`${LOGGING_CONFIG.EMOJIS.INFO}   - ${pos.symbol}: qty=${pos.quantity}, entry=${pos.entry_price}, current=${pos.current_price}`);
+    });
+
     for (const currentPosition of currentPositions) {
       if (currentPosition.quantity !== 0) {
+        logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Processing ${currentPosition.symbol}: qty=${currentPosition.quantity}, entry=${currentPosition.entry_price}, current=${currentPosition.current_price}`);
+
         // 检查盈利目标
         if (options?.profitTarget) {
           const profitPercentage = await this.calculateProfitPercentage(currentPosition);
           if (profitPercentage >= options.profitTarget) {
+            logInfo(`${LOGGING_CONFIG.EMOJIS.MONEY} ${currentPosition.symbol} profit target reached: ${profitPercentage.toFixed(2)}% >= ${options.profitTarget}%`);
             changes.push({
               symbol: currentPosition.symbol,
               type: 'profit_target_reached',
@@ -527,47 +529,137 @@ export class FollowService {
               profitPercentage
             });
             continue;
+          } else {
+            logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} profit check: ${profitPercentage.toFixed(2)}% < ${options.profitTarget}% (not reached)`);
           }
+        } else {
+          logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} profit target check skipped (not set)`);
         }
 
         // 检查是否已经有相同的仓位在Binance上，避免重复建仓
+        let existingPosition = null;
+        let positionAmt = 0;
+        let currentPositionSign = 0;
+        let existingPositionSign = 0;
+
         try {
           const binancePositions = await this.positionManager['binanceService'].getPositions();
+          logDebug(`${LOGGING_CONFIG.EMOJIS.SEARCH} Binance positions for ${currentPosition.symbol}:`);
+          binancePositions.forEach(pos => {
+            logDebug(`${LOGGING_CONFIG.EMOJIS.DATA}   - ${pos.symbol}: amt=${pos.positionAmt}, entry=${pos.entryPrice}, leverage=${pos.leverage}`);
+          });
+
           const targetSymbol = this.positionManager['binanceService'].convertSymbol(currentPosition.symbol);
-          const existingPosition = binancePositions.find(
+          logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Converting ${currentPosition.symbol} -> ${targetSymbol}`);
+
+          existingPosition = binancePositions.find(
             p => p.symbol === targetSymbol && parseFloat(p.positionAmt) !== 0
           );
 
           if (existingPosition) {
+            logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} Found existing position for ${currentPosition.symbol}: ${existingPosition.symbol} amt=${existingPosition.positionAmt}, entry=${existingPosition.entryPrice}`);
+
             // 如果Binance上已经有仓位，检查是否需要调整
-            const positionAmt = parseFloat(existingPosition.positionAmt);
-            const currentPositionSign = Math.sign(currentPosition.quantity);
-            const existingPositionSign = Math.sign(positionAmt);
+            positionAmt = parseFloat(existingPosition.positionAmt);
+            currentPositionSign = Math.sign(currentPosition.quantity);
+            existingPositionSign = Math.sign(positionAmt);
+
+            logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} sign check: current=${currentPositionSign}, existing=${existingPositionSign}`);
 
             // 如果方向相同，且数量相近，跳过这个仓位
             if (currentPositionSign === existingPositionSign) {
               const quantityDiff = Math.abs(Math.abs(currentPosition.quantity) - Math.abs(positionAmt));
               const entryPriceDiff = Math.abs(currentPosition.entry_price - parseFloat(existingPosition.entryPrice));
+              const quantityThreshold = Math.abs(currentPosition.quantity) * 0.1;
+              const priceThreshold = currentPosition.entry_price * 0.05;
+
+              logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} quantity check: diff=${quantityDiff}, threshold=${quantityThreshold}, price diff=${entryPriceDiff}, threshold=${priceThreshold}`);
 
               // 如果数量和价格都很接近，认为是同一个仓位，跳过
-              if (quantityDiff < Math.abs(currentPosition.quantity) * 0.1 &&
-                  entryPriceDiff < currentPosition.entry_price * 0.05) {
-                logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Skipping ${currentPosition.symbol} - existing position matches current position`);
-                continue;
+              if (quantityDiff < quantityThreshold && entryPriceDiff < priceThreshold) {
+                logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} SKIPPING ${currentPosition.symbol} - existing position matches current position`);
+                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Quantity: ${Math.abs(currentPosition.quantity)} vs ${Math.abs(positionAmt)} (diff: ${quantityDiff})`);
+                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price: ${currentPosition.entry_price} vs ${parseFloat(existingPosition.entryPrice)} (diff: ${entryPriceDiff})`);
+                continue; // 跳过这个仓位，不生成计划
+              } else {
+                logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} thresholds not met - will create plan`);
+                // 即使数量不匹配，也要检查是否需要调整仓位
+                const requiredQuantity = currentPosition.quantity;
+                const currentQuantity = positionAmt;
+                const quantityDifference = Math.abs(requiredQuantity) - Math.abs(currentQuantity);
+
+                // 如果需要增加仓位且方向相同
+                if (quantityDifference > 0.0001) { // 最小交易量阈值
+                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position adjustment: adding ${quantityDifference} contracts`);
+                } else if (quantityDifference < -0.0001) { // 需要减少仓位
+                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position reduction: removing ${Math.abs(quantityDifference)} contracts`);
+                }
               }
+            } else {
+              logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} direction different - will create plan`);
+              // 方向不同，需要先平仓再开仓
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} position direction changed - will close existing and open new`);
             }
+          } else {
+            logInfo(`${LOGGING_CONFIG.EMOJIS.SUCCESS} NO existing position found for ${currentPosition.symbol} - will create plan`);
           }
         } catch (error) {
-          logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to check existing Binance positions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          logError(`${LOGGING_CONFIG.EMOJIS.ERROR} Failed to check existing Binance positions for ${currentPosition.symbol}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
 
-        // 直接生成进入计划，不与历史对比
-        changes.push({
-          symbol: currentPosition.symbol,
-          type: 'new_position',
-          currentPosition
-        });
+        // 只有在没有现有仓位或需要调整仓位时才生成进入计划
+        let shouldGeneratePlan = false;
+        if (!existingPosition) {
+          // 没有现有仓位，生成新仓位计划
+          shouldGeneratePlan = true;
+        } else if (currentPositionSign !== existingPositionSign) {
+          // 方向不同，需要先平仓再开仓
+          shouldGeneratePlan = true;
+        } else {
+          // 方向相同，检查是否需要调整仓位
+          const quantityDiff = Math.abs(Math.abs(currentPosition.quantity) - Math.abs(positionAmt));
+          const entryPriceDiff = Math.abs(currentPosition.entry_price - parseFloat(existingPosition?.entryPrice || 0));
+          const quantityThreshold = Math.abs(currentPosition.quantity) * 0.1;
+          const priceThreshold = currentPosition.entry_price * 0.05;
+
+          // 如果数量或价格差异较大，需要调整仓位
+          if (quantityDiff >= quantityThreshold || entryPriceDiff >= priceThreshold) {
+            shouldGeneratePlan = true;
+          }
+        }
+
+        if (shouldGeneratePlan) {
+          // 直接生成进入计划，不与历史对比
+          logInfo(`${LOGGING_CONFIG.EMOJIS.TREND_UP} GENERATING plan for ${currentPosition.symbol}`);
+          changes.push({
+            symbol: currentPosition.symbol,
+            type: 'new_position',
+            currentPosition
+          });
+        }
+      } else {
+        logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Skipping ${currentPosition.symbol} - quantity is 0`);
       }
+    }
+
+    logInfo(`${LOGGING_CONFIG.EMOJIS.SUCCESS} generateDirectEntryChanges completed: ${changes.length} changes generated`);
+    changes.forEach(change => {
+      logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   - ${change.symbol}: ${change.type}`);
+    });
+
+    // 添加关键调试信息：显示哪些位置被跳过以及原因
+    const allSymbols = currentPositions.map(p => p.symbol);
+    const processedSymbols = changes.map(c => c.symbol);
+    const skippedSymbols = allSymbols.filter(symbol => !processedSymbols.includes(symbol));
+
+    if (skippedSymbols.length > 0) {
+      logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} The following symbols were skipped in generateDirectEntryChanges: ${skippedSymbols.join(', ')}`);
+      skippedSymbols.forEach(symbol => {
+        const position = currentPositions.find(p => p.symbol === symbol);
+        if (position) {
+          logWarn(`${LOGGING_CONFIG.EMOJIS.INFO}   ${symbol}: quantity=${position.quantity}, entry_price=${position.entry_price}, current_price=${position.current_price}`);
+        }
+      });
     }
 
     return changes;
@@ -762,11 +854,11 @@ export class FollowService {
     const { previousPosition, currentPosition } = change;
     if (!previousPosition || !currentPosition) return;
 
-    // 检查新订单是否已处理（去重）
-    if (this.orderHistoryManager.isOrderProcessed(currentPosition.entry_oid, currentPosition.symbol)) {
-      logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} SKIPPED: ${currentPosition.symbol} new entry (OID: ${currentPosition.entry_oid}) already processed`);
-      return;
-    }
+    // 注释掉本地订单历史文件检查，完全依赖Binance API
+    // if (this.orderHistoryManager.isOrderProcessed(currentPosition.entry_oid, currentPosition.symbol)) {
+    //   logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} SKIPPED: ${currentPosition.symbol} new entry (OID: ${currentPosition.entry_oid}) already processed`);
+    //   return;
+    // }
 
     // 检查 Binance 是否真的有该币种的仓位
     let hasActualPosition = false;
@@ -893,24 +985,37 @@ export class FollowService {
     const { currentPosition } = change;
     if (!currentPosition) return;
 
-    // 检查订单是否已处理（去重）
-    if (this.orderHistoryManager.isOrderProcessed(currentPosition.entry_oid, currentPosition.symbol)) {
-      logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} SKIPPED: ${currentPosition.symbol} position (OID: ${currentPosition.entry_oid}) already processed`);
-      return;
-    }
+    logInfo(`${LOGGING_CONFIG.EMOJIS.SEARCH} handleNewPosition START for ${currentPosition.symbol} (useDirectStrategy: ${useDirectStrategy})`);
+
+    // 记录当前持仓的详细信息
+    logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Current position details: ${currentPosition.symbol}`);
+    logDebug(`${LOGGING_CONFIG.EMOJIS.INFO}   Quantity: ${currentPosition.quantity}`);
+    logDebug(`${LOGGING_CONFIG.EMOJIS.INFO}   Entry Price: ${currentPosition.entry_price}`);
+    logDebug(`${LOGGING_CONFIG.EMOJIS.INFO}   Current Price: ${currentPosition.current_price}`);
+    logDebug(`${LOGGING_CONFIG.EMOJIS.INFO}   Leverage: ${currentPosition.leverage}`);
+    logDebug(`${LOGGING_CONFIG.EMOJIS.INFO}   Entry OID: ${currentPosition.entry_oid}`);
+
+    // 注释掉本地订单历史文件检查，完全依赖Binance API
+    // if (this.orderHistoryManager.isOrderProcessed(currentPosition.entry_oid, currentPosition.symbol)) {
+    //   logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} SKIPPED: ${currentPosition.symbol} position (OID: ${currentPosition.entry_oid}) already processed`);
+    //   return;
+    // }
 
     // 初始化 releasedMargin 变量
     let releasedMargin: number | undefined;
 
-    // 如果使用直接策略，跳过Binance现有仓位检查（避免先卖后买）
-    if (!useDirectStrategy) {
-      // 检查 Binance 是否已有该币种的仓位(防止程序重启后无法检测到 entry_oid 变化)
+    // 如果使用直接策略，需要检查Binance现有仓位（避免重复购买）
+    if (useDirectStrategy) {
+      // 检查 Binance 是否已有该币种的仓位
       try {
         const binancePositions = await this.positionManager['binanceService'].getPositions();
         const targetSymbol = this.positionManager['binanceService'].convertSymbol(currentPosition.symbol);
 
         logDebug(`${LOGGING_CONFIG.EMOJIS.SEARCH} Checking for existing positions on Binance for ${currentPosition.symbol} (converted: ${targetSymbol})...`);
         logVerbose(`${LOGGING_CONFIG.EMOJIS.DATA} Found ${binancePositions.length} total position(s) on Binance`);
+        binancePositions.forEach(pos => {
+          logVerbose(`${LOGGING_CONFIG.EMOJIS.DATA}   - ${pos.symbol}: amt=${pos.positionAmt}, entry=${pos.entryPrice}`);
+        });
 
         const existingPosition = binancePositions.find(
           p => p.symbol === targetSymbol && parseFloat(p.positionAmt) !== 0
@@ -919,54 +1024,73 @@ export class FollowService {
         if (existingPosition) {
           const positionAmt = parseFloat(existingPosition.positionAmt);
           logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} Found existing position on Binance: ${existingPosition.symbol} ${positionAmt > 0 ? 'LONG' : 'SHORT'} ${Math.abs(positionAmt)}`);
-          logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Closing existing position before opening new entry (OID: ${currentPosition.entry_oid})...`);
 
-          // 获取平仓前余额
-          let balanceBeforeClose: number | undefined;
-          try {
-            const accountInfo = await this.tradingExecutor.getAccountInfo();
-            balanceBeforeClose = parseFloat(accountInfo.availableBalance);
-            logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Balance before closing: $${balanceBeforeClose.toFixed(2)} USDT`);
-          } catch (error) {
-            logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to get balance before close: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          }
+          // 检查是否需要调整仓位而不是完全跳过
+          const currentPositionSign = Math.sign(currentPosition.quantity);
+          const existingPositionSign = Math.sign(positionAmt);
 
-          const closeReason = `Closing existing position before opening new entry (OID: ${currentPosition.entry_oid})`;
-          const closeResult = await this.positionManager.closePosition(currentPosition.symbol, closeReason);
+          if (currentPositionSign === existingPositionSign) {
+            // 方向相同，检查数量和价格差异
+            const quantityDiff = Math.abs(Math.abs(currentPosition.quantity) - Math.abs(positionAmt));
+            const entryPriceDiff = Math.abs(currentPosition.entry_price - parseFloat(existingPosition.entryPrice));
+            const quantityThreshold = Math.max(Math.abs(currentPosition.quantity) * 0.1, 0.01); // 最小阈值0.01
+            const priceThreshold = currentPosition.entry_price * 0.05;
 
-          if (!closeResult.success) {
-            logError(`${LOGGING_CONFIG.EMOJIS.ERROR} Failed to close existing position for ${currentPosition.symbol}, skipping new position`);
-            return;
-          }
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Position Comparison:`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Current Position Quantity: ${Math.abs(currentPosition.quantity)}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Existing Position Quantity: ${Math.abs(positionAmt)}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Quantity Difference: ${quantityDiff}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Quantity Threshold (10%): ${quantityThreshold}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Current Entry Price: ${currentPosition.entry_price}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Existing Entry Price: ${parseFloat(existingPosition.entryPrice)}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price Difference: ${entryPriceDiff}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price Threshold (5%): ${priceThreshold}`);
 
-          // 获取平仓后余额,计算释放的资金
-          if (balanceBeforeClose !== undefined) {
-            try {
-              // 额外等待1秒确保资金完全释放
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              const accountInfo = await this.tradingExecutor.getAccountInfo();
-              const balanceAfterClose = parseFloat(accountInfo.availableBalance);
-              releasedMargin = balanceAfterClose - balanceBeforeClose;
-              logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Balance after closing: $${balanceAfterClose.toFixed(2)} USDT`);
-              logInfo(`${LOGGING_CONFIG.EMOJIS.MONEY} Released margin from closing: $${releasedMargin.toFixed(2)} USDT (${releasedMargin >= 0 ? 'Profit' : 'Loss'})`);
-
-              if (releasedMargin <= 0) {
-                logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Position closed with loss, insufficient margin released. Will use available balance.`);
-                releasedMargin = undefined;
-              }
-            } catch (error) {
-              logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to get balance after close: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            // 如果数量和价格都很接近，跳过这个仓位
+            if (quantityDiff < quantityThreshold && entryPriceDiff < priceThreshold) {
+              logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} SKIPPING ${currentPosition.symbol} - existing position matches current position (direct strategy)`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Quantity: ${Math.abs(currentPosition.quantity)} vs ${Math.abs(positionAmt)} (diff: ${quantityDiff})`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price: ${currentPosition.entry_price} vs ${parseFloat(existingPosition.entryPrice)} (diff: ${entryPriceDiff})`);
+              return; // 跳过这个仓位，不生成计划
             }
+
+            // 如果现有仓位数量更大，且差异显著，考虑减少下单量或跳过
+            if (Math.abs(positionAmt) > Math.abs(currentPosition.quantity) * 1.2) {
+              logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} Existing position (${Math.abs(positionAmt)}) is significantly larger than current position (${Math.abs(currentPosition.quantity)})`);
+
+              // 计算需要补充的数量
+              const requiredAdditionalQuantity = Math.abs(currentPosition.quantity) - Math.abs(positionAmt);
+              if (requiredAdditionalQuantity < 0) {
+                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Existing position already exceeds required quantity, skipping additional buy`);
+                return; // 跳过，因为现有仓位已经足够
+              }
+            } else if (Math.abs(positionAmt) < Math.abs(currentPosition.quantity) * 0.8) {
+              // 现有仓位明显小于目标仓位，可能是加仓操作
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Existing position (${Math.abs(positionAmt)}) is significantly smaller than current position (${Math.abs(currentPosition.quantity)}) - likely a position increase`);
+
+              // 计算需要补充的数量
+              const requiredAdditionalQuantity = Math.abs(currentPosition.quantity) - Math.abs(positionAmt);
+              if (requiredAdditionalQuantity > 0.001) { // 最小交易量阈值
+                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Adjusting quantity for position increase: ${requiredAdditionalQuantity} contracts`);
+
+                // 创建新的 position 对象，只包含需要补充的数量
+                const adjustedPosition = {
+                  ...currentPosition,
+                  quantity: Math.sign(currentPosition.quantity) * requiredAdditionalQuantity
+                };
+
+                // 使用调整后的仓位生成跟单计划
+                await this.generateFollowPlanForPosition(adjustedPosition, agentId, plans, useDirectStrategy, releasedMargin);
+                return; // 完成后直接返回，避免重复处理
+              }
+            }
+          } else {
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} position direction changed in direct strategy - will close existing and open new`);
           }
-        } else {
-          logDebug(`${LOGGING_CONFIG.EMOJIS.SUCCESS} No existing position found on Binance for ${targetSymbol}, proceeding with new position`);
         }
       } catch (error) {
-        logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to check existing positions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to check existing positions in direct strategy: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
-    } else {
-      logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Using direct strategy, skipping Binance existing position check for ${currentPosition.symbol}`);
-      // 在直接策略下，releasedMargin 保持 undefined
     }
 
     // 添加价格容忍度检查
@@ -1006,6 +1130,57 @@ export class FollowService {
       logInfo(`${LOGGING_CONFIG.EMOJIS.TREND_UP} NEW POSITION: ${currentPosition.symbol} ${followPlan.side} ${followPlan.quantity} @ ${currentPosition.entry_price} (OID: ${currentPosition.entry_oid})`);
     }
     logDebug(`${LOGGING_CONFIG.EMOJIS.MONEY} Price Check: Entry $${currentPosition.entry_price} vs Current $${currentPosition.current_price} - ${priceTolerance.reason}`);
+
+    logInfo(`${LOGGING_CONFIG.EMOJIS.SUCCESS} handleNewPosition END for ${currentPosition.symbol}`);
+  }
+
+  /**
+   * 为调整后的仓位生成跟单计划
+   */
+  private async generateFollowPlanForPosition(
+    position: Position,
+    agentId: string,
+    plans: FollowPlan[],
+    useDirectStrategy: boolean,
+    releasedMargin?: number
+  ): Promise<void> {
+    // 添加价格容忍度检查
+    const priceTolerance = this.riskManager.checkPriceTolerance(
+      position.entry_price,
+      position.current_price,
+      position.symbol
+    );
+
+    // 生成 FollowPlan
+    const followPlan: FollowPlan = {
+      action: "ENTER",
+      symbol: position.symbol,
+      side: position.quantity > 0 ? "BUY" : "SELL",
+      type: "MARKET",
+      quantity: Math.abs(position.quantity),
+      leverage: position.leverage,
+      entryPrice: position.entry_price,
+      reason: useDirectStrategy
+        ? `Direct entry based on actual position (OID: ${position.entry_oid}) by ${agentId}`
+        : (releasedMargin && releasedMargin > 0
+          ? `Reopening with released margin $${releasedMargin.toFixed(2)} (OID: ${position.entry_oid}) by ${agentId}`
+          : `New position opened by ${agentId} (OID: ${position.entry_oid})`),
+      agent: agentId,
+      timestamp: Date.now(),
+      position: position,
+      priceTolerance,
+      releasedMargin: releasedMargin && releasedMargin > 0 ? releasedMargin : undefined,
+      marginType: undefined
+    };
+
+    plans.push(followPlan);
+
+    if (releasedMargin && releasedMargin > 0) {
+      logInfo(`${LOGGING_CONFIG.EMOJIS.TREND_UP} NEW POSITION (with released margin $${releasedMargin.toFixed(2)}): ${position.symbol} ${followPlan.side} ${followPlan.quantity} @ ${position.entry_price} (OID: ${position.entry_oid})`);
+    } else {
+      logInfo(`${LOGGING_CONFIG.EMOJIS.TREND_UP} NEW POSITION: ${position.symbol} ${followPlan.side} ${followPlan.quantity} @ ${position.entry_price} (OID: ${position.entry_oid})`);
+    }
+    logDebug(`${LOGGING_CONFIG.EMOJIS.MONEY} Price Check: Entry $${position.entry_price} vs Current $${position.current_price} - ${priceTolerance.reason}`);
   }
 
   /**
@@ -1176,6 +1351,35 @@ export class FollowService {
       logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Net worth: ${netWorth.toFixed(2)} USDT`);
     } catch (balanceError) {
       logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to get account balance: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`);
+    }
+
+    // 检查是否有足够的保证金来执行所有计划
+    const totalRequiredMargin = enterPlans.reduce((sum, plan) => {
+      // 计算每个计划所需的保证金
+      const notionalValue = plan.quantity * plan.entryPrice;
+      const requiredMargin = notionalValue / plan.leverage;
+      return sum + requiredMargin;
+    }, 0);
+
+    logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Total required margin for all plans: ${totalRequiredMargin.toFixed(2)} USDT`);
+
+    // 如果净资产不足以覆盖所有计划，按比例缩减
+    if (netWorth !== undefined && netWorth > 0 && totalRequiredMargin > netWorth) {
+      const reductionRatio = netWorth / totalRequiredMargin;
+      logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Insufficient net worth for all plans: Required ${totalRequiredMargin.toFixed(2)} USDT, Net worth: ${netWorth.toFixed(2)} USDT`);
+      logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Reducing all plans by ratio: ${reductionRatio.toFixed(4)} (${(reductionRatio * 100).toFixed(2)}%)`);
+
+      // 按比例缩减所有计划的数量
+      for (const plan of enterPlans) {
+        const originalNotionalValue = plan.quantity * plan.entryPrice;
+        const originalMargin = originalNotionalValue / plan.leverage;
+        const reducedMargin = originalMargin * reductionRatio;
+        const reducedQuantity = (reducedMargin * plan.leverage) / plan.entryPrice;
+
+        plan.quantity = Math.max(0, reducedQuantity);
+        plan.allocatedMargin = reducedMargin;
+        plan.notionalValue = plan.quantity * plan.entryPrice;
+      }
     }
 
     // 执行资金分配（优先使用净资产）

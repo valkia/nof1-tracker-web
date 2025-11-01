@@ -13,8 +13,8 @@
       "commissionAsset": "USDT",
       "time": 1761930218788,
       "positionSide": "BOTH",
-      "buyer": false,
-      "maker": false
+      "maker": false,
+      "buyer": false
     },
     {
       "symbol": "BTCUSDT",
@@ -29,8 +29,8 @@
       "commissionAsset": "USDT",
       "time": 1761967204873,
       "positionSide": "BOTH",
-      "buyer": false,
-      "maker": false
+      "maker": false,
+      "buyer": false
     },
     {
       "symbol": "XRPUSDT",
@@ -45,8 +45,8 @@
       "commissionAsset": "USDT",
       "time": 1761967207026,
       "positionSide": "BOTH",
-      "buyer": false,
-      "maker": false
+      "maker": false,
+      "buyer": false
     },
     {
       "symbol": "SOLUSDT",
@@ -61,13 +61,109 @@
       "commissionAsset": "USDT",
       "time": 1761967209079,
       "positionSide": "BOTH",
-      "buyer": false,
-      "maker": false
+      "maker": false,
+      "buyer": false
+    },
+    {
+      "symbol": "BNBUSDT",
+      "id": 1909347101,
+      "orderId": 79979701174,
+      "side": "BUY",
+      "price": "1088.560",
+      "qty": "0.07",
+      "realizedPnl": "0",
+      "quoteQty": "76.19920",
+      "commission": "0.03809959",
+      "commissionAsset": "USDT",
+      "time": 1762002514403,
+      "positionSide": "BOTH",
+      "maker": false,
+      "buyer": true
+    },
+    {
+      "symbol": "BNBUSDT",
+      "id": 1909347267,
+      "orderId": 79979714022,
+      "side": "BUY",
+      "price": "1088.410",
+      "qty": "0.07",
+      "realizedPnl": "0",
+      "quoteQty": "76.18870",
+      "commission": "0.03809435",
+      "commissionAsset": "USDT",
+      "time": 1762002544879,
+      "positionSide": "BOTH",
+      "maker": false,
+      "buyer": true
+    },
+    {
+      "symbol": "BNBUSDT",
+      "id": 1909347467,
+      "orderId": 79979732073,
+      "side": "BUY",
+      "price": "1088.680",
+      "qty": "0.07",
+      "realizedPnl": "0",
+      "quoteQty": "76.20760",
+      "commission": "0.03810380",
+      "commissionAsset": "USDT",
+      "time": 1762002574790,
+      "positionSide": "BOTH",
+      "maker": false,
+      "buyer": true
+    },
+    {
+      "symbol": "BNBUSDT",
+      "id": 1909347663,
+      "orderId": 79979739199,
+      "side": "BUY",
+      "price": "1088.490",
+      "qty": "0.02",
+      "realizedPnl": "0",
+      "quoteQty": "21.76980",
+      "commission": "0.01088490",
+      "commissionAsset": "USDT",
+      "time": 1762002604542,
+      "positionSide": "BOTH",
+      "maker": false,
+      "buyer": true
+    },
+    {
+      "symbol": "BNBUSDT",
+      "id": 1909347664,
+      "orderId": 79979739199,
+      "side": "BUY",
+      "price": "1088.490",
+      "qty": "0.05",
+      "realizedPnl": "0",
+      "quoteQty": "54.42450",
+      "commission": "0.02721225",
+      "commissionAsset": "USDT",
+      "time": 1762002604542,
+      "positionSide": "BOTH",
+      "maker": false,
+      "buyer": true
+    },
+    {
+      "symbol": "BNBUSDT",
+      "id": 1909347843,
+      "orderId": 79979752028,
+      "side": "BUY",
+      "price": "1088.660",
+      "qty": "0.07",
+      "realizedPnl": "0",
+      "quoteQty": "76.20620",
+      "commission": "0.03810310",
+      "commissionAsset": "USDT",
+      "time": 1762002633461,
+      "positionSide": "BOTH",
+      "maker": false,
+      "buyer": true
     }
   ],
-  "lastUpdated": 1762000095599,
+  "lastUpdated": 1762011077794,
   "timeRange": {
-    "startTime": 1761913695428,
-    "endTime": 1762000095428
+    "startTime": 1761924677609,
+    "endTime": 1762011077609
   }
 }
