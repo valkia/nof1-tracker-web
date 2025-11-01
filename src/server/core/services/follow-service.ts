@@ -481,7 +481,7 @@ export class FollowService {
 
     // 4. 处理每种变化
     for (const change of changes) {
-      const plans = await this.handlePositionChange(change, agentId, options, useActualPositions);
+      const plans = await this.handlePositionChange(change, agentId, options, useActualPositions, currentPositions);
       followPlans.push(...plans);
     }
 
@@ -568,31 +568,42 @@ export class FollowService {
 
             // 如果方向相同，且数量相近，跳过这个仓位
             if (currentPositionSign === existingPositionSign) {
-              const quantityDiff = Math.abs(Math.abs(currentPosition.quantity) - Math.abs(positionAmt));
+              // 计算保证金而不是直接比较数量
+              const existingMargin = Math.abs(positionAmt * parseFloat(existingPosition.entryPrice)) / parseFloat(existingPosition.leverage);
+              const currentMargin = Math.abs(currentPosition.quantity * currentPosition.entry_price) / currentPosition.leverage;
+
+              const marginDiff = Math.abs(currentMargin - existingMargin);
               const entryPriceDiff = Math.abs(currentPosition.entry_price - parseFloat(existingPosition.entryPrice));
-              const quantityThreshold = Math.abs(currentPosition.quantity) * 0.1;
+              const marginThreshold = currentMargin * 0.1;
               const priceThreshold = currentPosition.entry_price * 0.05;
 
-              logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} quantity check: diff=${quantityDiff}, threshold=${quantityThreshold}, price diff=${entryPriceDiff}, threshold=${priceThreshold}`);
+              logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} margin check: diff=${marginDiff}, threshold=${marginThreshold}, price diff=${entryPriceDiff}, threshold=${priceThreshold}`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Position Comparison:`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Current Position Quantity: ${Math.abs(currentPosition.quantity)}`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Existing Position Quantity: ${Math.abs(positionAmt)}`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Current Margin: $${currentMargin.toFixed(2)}`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Existing Margin: $${existingMargin.toFixed(2)}`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Margin Ratio: ${(currentMargin / existingMargin).toFixed(2)}x`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Current Entry Price: ${currentPosition.entry_price}`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Existing Entry Price: ${parseFloat(existingPosition.entryPrice)}`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price Difference: ${entryPriceDiff.toFixed(2)}`);
 
-              // 如果数量和价格都很接近，认为是同一个仓位，跳过
-              if (quantityDiff < quantityThreshold && entryPriceDiff < priceThreshold) {
+              // 如果保证金和价格都很接近，认为是同一个仓位，跳过
+              if (marginDiff < marginThreshold && entryPriceDiff < priceThreshold) {
                 logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} SKIPPING ${currentPosition.symbol} - existing position matches current position`);
-                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Quantity: ${Math.abs(currentPosition.quantity)} vs ${Math.abs(positionAmt)} (diff: ${quantityDiff})`);
-                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price: ${currentPosition.entry_price} vs ${parseFloat(existingPosition.entryPrice)} (diff: ${entryPriceDiff})`);
                 continue; // 跳过这个仓位，不生成计划
               } else {
                 logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} thresholds not met - will create plan`);
-                // 即使数量不匹配，也要检查是否需要调整仓位
-                const requiredQuantity = currentPosition.quantity;
-                const currentQuantity = positionAmt;
-                const quantityDifference = Math.abs(requiredQuantity) - Math.abs(currentQuantity);
+                // 即使保证金不匹配，也要检查是否需要调整仓位
+                const requiredMargin = currentMargin;
+                const currentMarginExisting = existingMargin;
+                const marginDifference = requiredMargin - currentMarginExisting;
 
                 // 如果需要增加仓位且方向相同
-                if (quantityDifference > 0.0001) { // 最小交易量阈值
-                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position adjustment: adding ${quantityDifference} contracts`);
-                } else if (quantityDifference < -0.0001) { // 需要减少仓位
-                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position reduction: removing ${Math.abs(quantityDifference)} contracts`);
+                if (marginDifference > 1) { // 最小保证金阈值
+                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position adjustment: adding $${marginDifference.toFixed(2)} margin`);
+                } else if (marginDifference < -1) { // 需要减少仓位
+                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position reduction: removing $${Math.abs(marginDifference).toFixed(2)} margin`);
                 }
               }
             } else {
@@ -813,7 +824,8 @@ export class FollowService {
     change: PositionChange,
     agentId: string,
     options?: FollowOptions,
-    useDirectStrategy: boolean = false
+    useDirectStrategy: boolean = false,
+    currentPositions?: Position[]
   ): Promise<FollowPlan[]> {
     const plans: FollowPlan[] = [];
 
@@ -823,7 +835,7 @@ export class FollowService {
         break;
 
       case 'new_position':
-        await this.handleNewPosition(change, agentId, plans, options, useDirectStrategy);
+        await this.handleNewPosition(change, agentId, plans, options, useDirectStrategy, currentPositions);
         break;
 
       case 'position_closed':
@@ -980,7 +992,8 @@ export class FollowService {
     agentId: string,
     plans: FollowPlan[],
     options?: FollowOptions,
-    useDirectStrategy: boolean = false
+    useDirectStrategy: boolean = false,
+    currentPositions?: Position[]
   ): Promise<void> {
     const { currentPosition } = change;
     if (!currentPosition) return;
@@ -1005,6 +1018,7 @@ export class FollowService {
     let releasedMargin: number | undefined;
 
     // 如果使用直接策略，需要检查Binance现有仓位（避免重复购买）
+    let directStrategyProcessed = false;
     if (useDirectStrategy) {
       // 检查 Binance 是否已有该币种的仓位
       try {
@@ -1030,59 +1044,83 @@ export class FollowService {
           const existingPositionSign = Math.sign(positionAmt);
 
           if (currentPositionSign === existingPositionSign) {
-            // 方向相同，检查数量和价格差异
-            const quantityDiff = Math.abs(Math.abs(currentPosition.quantity) - Math.abs(positionAmt));
+            // 计算保证金而不是直接比较数量
+            const existingMargin = Math.abs(positionAmt * parseFloat(existingPosition.entryPrice)) / parseFloat(existingPosition.leverage);
+            const currentMargin = Math.abs(currentPosition.quantity * currentPosition.entry_price) / currentPosition.leverage;
+
+            const marginDiff = Math.abs(currentMargin - existingMargin);
             const entryPriceDiff = Math.abs(currentPosition.entry_price - parseFloat(existingPosition.entryPrice));
-            const quantityThreshold = Math.max(Math.abs(currentPosition.quantity) * 0.1, 0.01); // 最小阈值0.01
+            const marginThreshold = currentMargin * 0.1;
             const priceThreshold = currentPosition.entry_price * 0.05;
 
             logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Position Comparison:`);
             logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Current Position Quantity: ${Math.abs(currentPosition.quantity)}`);
             logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Existing Position Quantity: ${Math.abs(positionAmt)}`);
-            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Quantity Difference: ${quantityDiff}`);
-            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Quantity Threshold (10%): ${quantityThreshold}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Current Margin: $${currentMargin.toFixed(2)}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Existing Margin: $${existingMargin.toFixed(2)}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Margin Ratio: ${(currentMargin / existingMargin).toFixed(2)}x`);
             logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Current Entry Price: ${currentPosition.entry_price}`);
             logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Existing Entry Price: ${parseFloat(existingPosition.entryPrice)}`);
-            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price Difference: ${entryPriceDiff}`);
-            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price Threshold (5%): ${priceThreshold}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price Difference: ${entryPriceDiff.toFixed(2)}`);
 
-            // 如果数量和价格都很接近，跳过这个仓位
-            if (quantityDiff < quantityThreshold && entryPriceDiff < priceThreshold) {
+            // 如果保证金和价格都很接近，跳过这个仓位
+            if (marginDiff < marginThreshold && entryPriceDiff < priceThreshold) {
               logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} SKIPPING ${currentPosition.symbol} - existing position matches current position (direct strategy)`);
-              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Quantity: ${Math.abs(currentPosition.quantity)} vs ${Math.abs(positionAmt)} (diff: ${quantityDiff})`);
-              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Price: ${currentPosition.entry_price} vs ${parseFloat(existingPosition.entryPrice)} (diff: ${entryPriceDiff})`);
               return; // 跳过这个仓位，不生成计划
             }
 
-            // 如果现有仓位数量更大，且差异显著，考虑减少下单量或跳过
-            if (Math.abs(positionAmt) > Math.abs(currentPosition.quantity) * 1.2) {
-              logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} Existing position (${Math.abs(positionAmt)}) is significantly larger than current position (${Math.abs(currentPosition.quantity)})`);
+            // 如果现有仓位保证金更大，且差异显著，考虑减少下单量或跳过
+            if (existingMargin > currentMargin * 1.2) {
+              logInfo(`${LOGGING_CONFIG.EMOJIS.WARNING} Existing position margin ($${existingMargin.toFixed(2)}) is significantly larger than current position margin ($${currentMargin.toFixed(2)})`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Existing position already exceeds required margin, skipping additional buy`);
+              return; // 跳过，因为现有仓位已经足够
+            } else if (existingMargin < currentMargin * 0.8) {
+              // 现有仓位保证金明显小于目标仓位，可能是加仓操作
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Existing position margin ($${existingMargin.toFixed(2)}) is significantly smaller than current position margin ($${currentMargin.toFixed(2)}) - likely a position increase`);
 
-              // 计算需要补充的数量
-              const requiredAdditionalQuantity = Math.abs(currentPosition.quantity) - Math.abs(positionAmt);
-              if (requiredAdditionalQuantity < 0) {
-                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Existing position already exceeds required quantity, skipping additional buy`);
-                return; // 跳过，因为现有仓位已经足够
-              }
-            } else if (Math.abs(positionAmt) < Math.abs(currentPosition.quantity) * 0.8) {
-              // 现有仓位明显小于目标仓位，可能是加仓操作
-              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Existing position (${Math.abs(positionAmt)}) is significantly smaller than current position (${Math.abs(currentPosition.quantity)}) - likely a position increase`);
+              // 计算agent的总保证金（从所有currentPositions计算）
+              const agentTotalMargin = currentPositions.reduce((sum, pos) => {
+                const posMargin = Math.abs(pos.quantity * pos.entry_price) / pos.leverage;
+                return sum + posMargin;
+              }, 0);
 
-              // 计算需要补充的数量
-              const requiredAdditionalQuantity = Math.abs(currentPosition.quantity) - Math.abs(positionAmt);
-              if (requiredAdditionalQuantity > 0.001) { // 最小交易量阈值
-                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Adjusting quantity for position increase: ${requiredAdditionalQuantity} contracts`);
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Agent total margin: $${agentTotalMargin.toFixed(2)} (sum of all positions)`);
 
-                // 创建新的 position 对象，只包含需要补充的数量
+              // 计算用户保证金与agent保证金的比例 - 这是核心的修复
+              const userMarginRatio = (options?.totalMargin || 50) / agentTotalMargin;
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   User margin ratio: ${(userMarginRatio * 100).toFixed(2)}% (User: ${options?.totalMargin || 50} / Agent: ${agentTotalMargin.toFixed(2)})`);
+
+              // 计算用户应该持有的目标保证金量
+              const targetUserMargin = currentMargin * userMarginRatio;
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Target user margin for this position: $${targetUserMargin.toFixed(2)} (Current margin: $${currentMargin.toFixed(2)} * User ratio: ${(userMarginRatio * 100).toFixed(2)}%)`);
+
+              // 计算还需要增加的保证金量（考虑现有仓位）
+              const additionalMarginNeeded = targetUserMargin - existingMargin;
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Additional margin needed: $${additionalMarginNeeded.toFixed(2)} (Target: $${targetUserMargin.toFixed(2)} - Existing: $${existingMargin.toFixed(2)})`);
+
+              if (additionalMarginNeeded > 0) {
+                // 计算调整后的数量（基于需要增加的保证金）
+                const adjustedQuantity = Math.sign(currentPosition.quantity) * additionalMarginNeeded * currentPosition.leverage / currentPosition.entry_price;
+                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Adjusted quantity for additional margin: ${adjustedQuantity.toFixed(4)} (vs original: ${currentPosition.quantity.toFixed(4)})`);
+
+                // 创建调整后的仓位
                 const adjustedPosition = {
                   ...currentPosition,
-                  quantity: Math.sign(currentPosition.quantity) * requiredAdditionalQuantity
+                  quantity: adjustedQuantity
                 };
 
                 // 使用调整后的仓位生成跟单计划
-                await this.generateFollowPlanForPosition(adjustedPosition, agentId, plans, useDirectStrategy, releasedMargin);
+                await this.generateFollowPlanForPositionDirect(adjustedPosition, agentId, plans, useDirectStrategy, releasedMargin);
+                directStrategyProcessed = true; // 标记为已处理
                 return; // 完成后直接返回，避免重复处理
+              } else {
+                logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} No additional margin needed (existing position already meets target), skipping position increase`);
+                return;
               }
+            } else {
+              // 保证金比例在合理范围内（0.8 - 1.2），跳过这个仓位
+              logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Existing position margin is within acceptable range (80%-120%), skipping duplicate purchase`);
+              return;
             }
           } else {
             logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} position direction changed in direct strategy - will close existing and open new`);
@@ -1091,6 +1129,11 @@ export class FollowService {
       } catch (error) {
         logWarn(`${LOGGING_CONFIG.EMOJIS.WARNING} Failed to check existing positions in direct strategy: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
+    }
+
+    // 如果直接策略已经处理过，则跳过通用逻辑
+    if (directStrategyProcessed) {
+      return;
     }
 
     // 添加价格容忍度检查
@@ -1135,9 +1178,9 @@ export class FollowService {
   }
 
   /**
-   * 为调整后的仓位生成跟单计划
+   * 为调整后的仓位生成跟单计划（直接策略专用）
    */
-  private async generateFollowPlanForPosition(
+  private async generateFollowPlanForPositionDirect(
     position: Position,
     agentId: string,
     plans: FollowPlan[],
