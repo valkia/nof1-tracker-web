@@ -46,12 +46,13 @@ export class RiskManager {
 
   /**
    * 计算最大亏损
-   * 公式：maxLoss = quantity * contractSize * leverage
-   * 这里假设最坏情况下价格归零，所以最大亏损 = 合约数量 * 合约面值 * 杠杆
+   * 公式：maxLoss = quantity * contractSize
+   * 对于多头仓位，最大亏损是全部保证金（数量 * 合约面值）
+   * 杠杆已经体现在保证金计算中，不应在最大亏损计算中重复使用
    */
   private calculateMaxLoss(tradingPlan: TradingPlan): number {
     const contractSize = this.configManager.getContractSize(tradingPlan.symbol);
-    const maxLoss = tradingPlan.quantity * contractSize * tradingPlan.leverage;
+    const maxLoss = tradingPlan.quantity * contractSize;
     return maxLoss;
   }
 

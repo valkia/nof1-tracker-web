@@ -18,7 +18,9 @@
       "Bash(npm run test-functionality)",
       "Bash(node test-functionality.ts:*)",
       "Bash(node test-browser.ts)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "Bash(npx jest:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []

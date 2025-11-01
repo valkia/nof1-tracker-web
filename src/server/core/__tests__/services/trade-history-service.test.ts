@@ -197,6 +197,15 @@ describe('TradeHistoryService', () => {
   });
 
   describe('parseTimeFilter', () => {
+    it('应该解析小时格式', () => {
+      const result = TradeHistoryService.parseTimeFilter('24h');
+      const now = Date.now();
+      const expectedStartTime = now - (24 * 60 * 60 * 1000);
+
+      expect(result.endTime).toBeCloseTo(now, -3);
+      expect(result.startTime).toBeCloseTo(expectedStartTime, -3);
+    });
+
     it('应该解析天数格式', () => {
       const result = TradeHistoryService.parseTimeFilter('7d');
       const now = Date.now();

@@ -149,6 +149,14 @@ export class TradeHistoryService {
     let startTime: number;
     let endTime: number = now;
 
+    // 检查是否为小时格式 (如: 24h, 12h)
+    const hoursMatch = timeFilter.match(/^(\d+)h$/i);
+    if (hoursMatch) {
+      const hours = parseInt(hoursMatch[1]);
+      startTime = now - (hours * 60 * 60 * 1000);
+      return { startTime, endTime };
+    }
+
     // 检查是否为天数格式 (如: 7d, 30d)
     const daysMatch = timeFilter.match(/^(\d+)d$/i);
     if (daysMatch) {
@@ -176,7 +184,7 @@ export class TradeHistoryService {
 
     throw new Error(
       `Invalid time format: ${timeFilter}. Supported formats: ` +
-      `'7d' (last 7 days), '2024-01-01' (since date), '1704067200000' (timestamp)`
+      `'7d' (last 7 days), '24h' (last 24 hours), '2024-01-01' (since date), '1704067200000' (timestamp)`
     );
   }
 

@@ -476,7 +476,7 @@ export class FollowService {
     let changes: PositionChange[];
     if (useActualPositions) {
       // 直接基于实际持仓生成进入计划（避免先卖后买的循环）
-      changes = this.generateDirectEntryChanges(currentPositions, options);
+      changes = await this.generateDirectEntryChanges(currentPositions, options);
       logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Using direct entry strategy for ${changes.length} positions`);
     } else {
       changes = await this.detectPositionChanges(currentPositions, previousPositions || [], options);

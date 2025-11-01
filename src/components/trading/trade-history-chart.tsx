@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import type { TradeHistoryResult } from "@/server/nof1/trading";
 
 const RANGE_OPTIONS = [
-  { value: "1d", label: "24 小时" },
+  { value: "24h", label: "24 小时" },
   { value: "7d", label: "7 天" },
   { value: "30d", label: "30 天" },
 ];

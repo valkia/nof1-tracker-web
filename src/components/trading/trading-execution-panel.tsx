@@ -8,6 +8,189 @@ import type { AgentOverview } from "@/server/nof1/service";
 import type { TrackerSettings } from "@/server/nof1/settings";
 import type { FollowExecutionResponse } from "@/server/nof1/trading";
 
+interface RecentTrade {
+  symbol: string;
+  side: "BUY" | "SELL";
+  price: number;
+  qty: number;
+  realizedPnl: number;
+  commission: number;
+  time: number;
+  id: number;
+}
+
+interface RecentTradingRecordsProps {
+  onOpenSettings: () => void;
+}
+
+function RecentTradingRecords({ onOpenSettings }: RecentTradingRecordsProps) {
+  const [recentTrades, setRecentTrades] = useState<RecentTrade[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchRecentTrades() {
+      try {
+        const response = await fetch("/api/trading/history?range=24h");
+        if (!response.ok) {
+          throw new Error("Failed to fetch recent trades");
+        }
+        const data = await response.json();
+        // API返回的是points数组，不是trades数组
+        const trades = data.data.points || [];
+        // 将points转换为RecentTrade格式
+        const recentTrades = trades.map(trade => ({
+          symbol: data.data.symbol || 'UNKNOWN',
+          side: trade.side,
+          price: trade.price,
+          qty: trade.quantity,
+          realizedPnl: trade.realizedPnl,
+          commission: 0, // API没有返回佣金信息
+          time: trade.time,
+          id: trade.orderId // 添加id字段
+        }));
+        setRecentTrades(recentTrades);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchRecentTrades();
+
+    // 刷新数据的定时器
+    const interval = setInterval(fetchRecentTrades, 30000); // 每30秒刷新一次
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading) {
+    return (
+      <section className="mt-6 rounded-3xl border border-surface-200 bg-white/90 p-6 shadow-sm">
+        <h3 className="text-base font-semibold text-surface-900">最近交易记录</h3>
+        <p className="mt-2 text-sm text-surface-500">加载中...</p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="mt-6 rounded-3xl border border-surface-200 bg-white/90 p-6 shadow-sm">
+        <h3 className="text-base font-semibold text-surface-900">最近交易记录</h3>
+        <p className="mt-2 text-sm text-rose-500">加载失败: {error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-2 inline-flex items-center rounded-full border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:border-rose-400 hover:bg-rose-100"
+        >
+          重新加载
+        </button>
+      </section>
+    );
+  }
+
+  if (recentTrades.length === 0) {
+    return (
+      <section className="mt-6 rounded-3xl border border-surface-200 bg-white/90 p-6 shadow-sm">
+        <h3 className="text-base font-semibold text-surface-900">最近交易记录</h3>
+        <p className="mt-2 text-sm text-surface-500">暂无交易记录</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-6 rounded-3xl border border-surface-200 bg-white/90 p-6 shadow-sm">
+      <header className="flex flex-col gap-3 border-b border-surface-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-surface-900">最近交易记录</h3>
+          <p className="text-xs text-surface-500">
+            显示最近的交易活动，包括已成交的订单和盈亏情况
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-500"></span>
+          <span className="text-xs text-surface-500">实时更新</span>
+        </div>
+      </header>
+
+      <div className="mt-4 space-y-3">
+        {recentTrades.slice(0, 10).map((trade, index) => (
+          <RecentTradeItem key={`${trade.symbol}-${trade.id}-${index}`} trade={trade} />
+        ))}
+      </div>
+
+      {recentTrades.length > 10 && (
+        <div className="mt-4 text-center">
+          <p className="text-xs text-surface-400">
+            已显示最近10笔交易，完整记录请查看交易历史
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RecentTradeItem({ trade }: { trade: RecentTrade }) {
+  const formatTime = (timestamp: number) => {
+    return new Date(timestamp).toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
+
+  const formatPnL = (pnl: number) => {
+    if (pnl === 0) return "持平";
+    return `${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}`;
+  };
+
+  const isProfitable = trade.realizedPnl > 0;
+  const isLoss = trade.realizedPnl < 0;
+
+  return (
+    <article className="rounded-2xl border border-surface-100 bg-white p-4 shadow-sm animate-in fade-in slide-in-from-right-[20px] duration-500">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`flex h-8 w-8 items-center justify-center rounded-full ${trade.side === "BUY" ? "bg-emerald-100" : "bg-rose-100"}`}>
+            <span className={`text-sm font-semibold ${trade.side === "BUY" ? "text-emerald-700" : "text-rose-700"}`}>
+              {trade.side === "BUY" ? "📈" : "📉"}
+            </span>
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-surface-900">{trade.symbol}</span>
+              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                trade.side === "BUY" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+              }`}>
+                {trade.side === "BUY" ? "买入" : "卖出"}
+              </span>
+            </div>
+            <p className="text-xs text-surface-500">
+              数量: {trade.qty} | 价格: ${trade.price.toFixed(2)}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col items-end gap-1 text-right">
+          <div className="flex items-center gap-2">
+            <span className={`text-sm font-semibold ${isProfitable ? "text-emerald-600" : isLoss ? "text-rose-600" : "text-surface-600"}`}>
+              {formatPnL(trade.realizedPnl)}
+            </span>
+            {isProfitable && <span className="text-xs text-emerald-600">盈利</span>}
+            {isLoss && <span className="text-xs text-rose-600">亏损</span>}
+            {!isProfitable && !isLoss && <span className="text-xs text-surface-500">持平</span>}
+          </div>
+          <p className="text-xs text-surface-400">
+            佣金: ${trade.commission} | {formatTime(trade.time)}
+          </p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 interface TradingExecutionPanelProps {
   agents: AgentOverview[];
   settings: TrackerSettings;
@@ -505,6 +688,8 @@ export function TradingExecutionPanel({
         </form>
       )}
 
+      <RecentTradingRecords onOpenSettings={onOpenSettings} />
+
       {result ? (
         <div className="mt-8 space-y-4 rounded-3xl border border-surface-200 bg-surface-50/80 p-6 animate-in fade-in duration-300">
           <ExecutionResultPanel result={result} />
@@ -544,7 +729,7 @@ function ExecutionResultPanel({ result }: ExecutionResultPanelProps) {
       <header className="flex flex-col gap-2 border-b border-surface-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-wide text-primary">
-            执行结果
+            交易计划执行报告
           </p>
           <h3 className="text-lg font-semibold text-surface-900">
             {result.agentId} · {new Date(result.executedAt).toLocaleString()}
@@ -552,12 +737,12 @@ function ExecutionResultPanel({ result }: ExecutionResultPanelProps) {
         </div>
 
         <dl className="grid grid-cols-2 gap-3 text-xs text-surface-500 sm:grid-cols-3">
-          <SummaryItem label="执行成功" value={summary.executed} />
-          <SummaryItem label="风险阻断" value={summary.blocked} />
-          <SummaryItem label="仅风险评估" value={summary.riskOnly} />
-          <SummaryItem label="跳过" value={summary.skipped} />
-          <SummaryItem label="免操作" value={summary.noop} />
-          <SummaryItem label="计划总数" value={summary.total} />
+          <SummaryItem label="已执行计划" value={summary.executed} />
+          <SummaryItem label="风险拦截" value={summary.blocked} />
+          <SummaryItem label="风险评估" value={summary.riskOnly} />
+          <SummaryItem label="执行跳过" value={summary.skipped} />
+          <SummaryItem label="无需操作" value={summary.noop} />
+          <SummaryItem label="总计划数" value={summary.total} />
         </dl>
       </header>
 
@@ -616,11 +801,10 @@ function PlanResultCard({
       <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-surface-900">
-            {plan.plan.symbol} · {plan.plan.action}
+            {plan.plan.symbol} · {plan.plan.action} · {plan.plan.quantity.toFixed(4)} 张
           </p>
           <p className="text-xs text-surface-400">
-            {plan.plan.side} · {plan.plan.quantity.toFixed(4)} 张 ·{" "}
-            {plan.plan.leverage}x
+            {plan.plan.side} · {plan.plan.leverage}x 杠杆 · {plan.plan.marginType || '默认'} 保证金
           </p>
         </div>
         <span
