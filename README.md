@@ -46,6 +46,12 @@ cp .env.example .env
 npm run dev
 ```
 
+## 币安账户注册
+
+如果您还没有币安账户，可以通过我们的邀请链接注册，享受优惠费率：
+
+[前往币安注册](https://accounts.maxweb.red/register?ref=86609717)
+
 访问 [http://localhost:3000](http://localhost:3000) 查看控制台。
 
 ## 核心功能

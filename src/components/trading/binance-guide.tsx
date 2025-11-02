@@ -7,6 +7,8 @@ interface BinanceGuideProps {
 }
 
 export function BinanceGuide({ onOpenSettings }: BinanceGuideProps) {
+  const binanceReferralUrl = process.env.NEXT_PUBLIC_BINANCE_REFERRAL_URL || "https://www.binance.com/register";
+
   return (
     <section className="space-y-6 rounded-3xl border border-surface-200 bg-white p-6 shadow-sm">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-surface-100 pb-4">
@@ -23,8 +25,9 @@ export function BinanceGuide({ onOpenSettings }: BinanceGuideProps) {
           </p>
         </div>
         <Link
-          href="https://www.binance.com/register"
+          href={binanceReferralUrl}
           target="_blank"
+          rel="noopener noreferrer"
           className="inline-flex items-center gap-2 rounded-full border border-primary/30 px-4 py-2 text-xs font-semibold text-primary transition hover:border-primary hover:bg-primary/10"
         >
           前往币安注册
