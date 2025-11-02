@@ -595,6 +595,8 @@ export class FollowService {
               } else {
                 logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} thresholds not met - will create plan`);
                 // 即使保证金不匹配，也要检查是否需要调整仓位
+
+                // 计算正确的保证金差异，考虑方向性
                 const requiredMargin = currentMargin;
                 const currentMarginExisting = existingMargin;
                 const marginDifference = requiredMargin - currentMarginExisting;
@@ -642,11 +644,45 @@ export class FollowService {
         if (shouldGeneratePlan) {
           // 直接生成进入计划，不与历史对比
           logInfo(`${LOGGING_CONFIG.EMOJIS.TREND_UP} GENERATING plan for ${currentPosition.symbol}`);
-          changes.push({
-            symbol: currentPosition.symbol,
-            type: 'new_position',
-            currentPosition
-          });
+
+          // 如果是方向改变的情况，需要特殊处理保证金计算
+          if (existingPosition && currentPositionSign !== existingPositionSign) {
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Direction change detected for ${currentPosition.symbol}: existing=${existingPositionSign}, new=${currentPositionSign}`);
+
+            // 对于方向改变，计算正确的保证金需求
+            // 需要关闭现有仓位并开立新仓位，保证金应该基于新仓位的需求
+            const existingMargin = Math.abs(positionAmt * parseFloat(existingPosition.entryPrice)) / parseFloat(existingPosition.leverage);
+            const requiredMargin = Math.abs(currentPosition.quantity * currentPosition.entry_price) / currentPosition.leverage;
+
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} Direction change margin calculation:`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Existing margin: $${existingMargin.toFixed(2)}`);
+            logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Required margin: $${requiredMargin.toFixed(2)}`);
+
+            // 创建一个调整后的position用于方向改变
+            const adjustedPosition = {
+              ...currentPosition,
+              // 标记这是方向改变的调整，避免资本分配覆盖
+              isDirectionChange: true,
+              directionChangeInfo: {
+                existingSign: existingPositionSign,
+                newSign: currentPositionSign,
+                existingMargin: existingMargin,
+                requiredMargin: requiredMargin
+              }
+            };
+
+            changes.push({
+              symbol: currentPosition.symbol,
+              type: 'direction_change',
+              currentPosition: adjustedPosition
+            });
+          } else {
+            changes.push({
+              symbol: currentPosition.symbol,
+              type: 'new_position',
+              currentPosition
+            });
+          }
         }
       } else {
         logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Skipping ${currentPosition.symbol} - quantity is 0`);
@@ -1100,7 +1136,9 @@ export class FollowService {
 
               if (additionalMarginNeeded > 0) {
                 // 计算调整后的数量（基于需要增加的保证金）
-                const adjustedQuantity = Math.sign(currentPosition.quantity) * additionalMarginNeeded * currentPosition.leverage / currentPosition.entry_price;
+                // 修复：确保调整后的数量与原始仓位方向一致，避免符号错误
+                const baseQuantity = additionalMarginNeeded * currentPosition.leverage / currentPosition.entry_price;
+                const adjustedQuantity = Math.abs(baseQuantity) * Math.sign(currentPosition.quantity);
                 logInfo(`${LOGGING_CONFIG.EMOJIS.INFO}   Adjusted quantity for additional margin: ${adjustedQuantity.toFixed(4)} (vs original: ${currentPosition.quantity.toFixed(4)})`);
 
                 // 创建调整后的仓位
@@ -1215,7 +1253,9 @@ export class FollowService {
       releasedMargin: releasedMargin && releasedMargin > 0 ? releasedMargin : undefined,
       marginType: undefined,
       // 标记这是直接策略的调整量，避免在资金分配时被重新计算
-      isDirectStrategyAdjustment: true
+      isDirectStrategyAdjustment: useDirectStrategy || position.isDirectionChange,
+      // 如果是方向改变，保留原始计算的数量
+      isDirectionChange: position.isDirectionChange
     };
 
     plans.push(followPlan);
@@ -1473,9 +1513,9 @@ export class FollowService {
     for (const allocation of allocationResult.allocations) {
       const followPlan = enterPlans.find(plan => plan.symbol === allocation.symbol);
       if (followPlan) {
-        // 如果是直接策略的调整量，则保留原始计算的数量，不进行资金分配的重新调整
-        if (followPlan.isDirectStrategyAdjustment) {
-          logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Skipping capital allocation for direct strategy adjustment: ${followPlan.symbol} (quantity: ${followPlan.quantity})`);
+        // 如果是直接策略的调整量或方向改变，则保留原始计算的数量，不进行资金分配的重新调整
+        if (followPlan.isDirectStrategyAdjustment || followPlan.isDirectionChange) {
+          logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Skipping capital allocation for direct strategy/direction change adjustment: ${followPlan.symbol} (quantity: ${followPlan.quantity})`);
           // 仍然更新资金分配信息用于显示，但不改变交易数量
           followPlan.originalMargin = allocation.originalMargin;
           followPlan.allocatedMargin = allocation.allocatedMargin;
