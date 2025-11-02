@@ -597,15 +597,26 @@ export class FollowService {
                 // 即使保证金不匹配，也要检查是否需要调整仓位
 
                 // 计算正确的保证金差异，考虑方向性
-                const requiredMargin = currentMargin;
+                // 计算agent的总保证金（从所有currentPositions计算）
+                const agentTotalMargin = currentPositions.reduce((sum, pos) => {
+                  const posMargin = Math.abs(pos.quantity * pos.entry_price) / pos.leverage;
+                  return sum + posMargin;
+                }, 0);
+
+                // 计算用户保证金与agent保证金的比例
+                const userMarginRatio = (options?.totalMargin || 50) / agentTotalMargin;
+
+                // 计算用户应该持有的目标保证金量
+                const targetUserMargin = currentMargin * userMarginRatio;
+
                 const currentMarginExisting = existingMargin;
-                const marginDifference = requiredMargin - currentMarginExisting;
+                const marginDifference = targetUserMargin - currentMarginExisting;
 
                 // 如果需要增加仓位且方向相同
                 if (marginDifference > 1) { // 最小保证金阈值
-                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position adjustment: adding $${marginDifference.toFixed(2)} margin`);
+                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position adjustment: adding $${marginDifference.toFixed(2)} margin (User ratio: ${(userMarginRatio * 100).toFixed(2)}%)`);
                 } else if (marginDifference < -1) { // 需要减少仓位
-                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position reduction: removing $${Math.abs(marginDifference).toFixed(2)} margin`);
+                  logInfo(`${LOGGING_CONFIG.EMOJIS.INFO} ${currentPosition.symbol} needs position reduction: removing $${Math.abs(marginDifference).toFixed(2)} margin (User ratio: ${(userMarginRatio * 100).toFixed(2)}%)`);
                 }
               }
             } else {
