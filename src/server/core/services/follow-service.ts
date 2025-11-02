@@ -1213,7 +1213,9 @@ export class FollowService {
       position: position,
       priceTolerance,
       releasedMargin: releasedMargin && releasedMargin > 0 ? releasedMargin : undefined,
-      marginType: undefined
+      marginType: undefined,
+      // 标记这是直接策略的调整量，避免在资金分配时被重新计算
+      isDirectStrategyAdjustment: true
     };
 
     plans.push(followPlan);
@@ -1471,15 +1473,26 @@ export class FollowService {
     for (const allocation of allocationResult.allocations) {
       const followPlan = enterPlans.find(plan => plan.symbol === allocation.symbol);
       if (followPlan) {
-        // 更新资金分配信息
-        followPlan.originalMargin = allocation.originalMargin;
-        followPlan.allocatedMargin = allocation.allocatedMargin;
-        followPlan.notionalValue = allocation.notionalValue;
-        followPlan.adjustedQuantity = allocation.adjustedQuantity;
-        followPlan.allocationRatio = allocation.allocationRatio;
+        // 如果是直接策略的调整量，则保留原始计算的数量，不进行资金分配的重新调整
+        if (followPlan.isDirectStrategyAdjustment) {
+          logDebug(`${LOGGING_CONFIG.EMOJIS.INFO} Skipping capital allocation for direct strategy adjustment: ${followPlan.symbol} (quantity: ${followPlan.quantity})`);
+          // 仍然更新资金分配信息用于显示，但不改变交易数量
+          followPlan.originalMargin = allocation.originalMargin;
+          followPlan.allocatedMargin = allocation.allocatedMargin;
+          followPlan.notionalValue = allocation.notionalValue;
+          followPlan.adjustedQuantity = followPlan.quantity; // 保持原始计算的数量
+          followPlan.allocationRatio = allocation.allocationRatio;
+        } else {
+          // 更新资金分配信息
+          followPlan.originalMargin = allocation.originalMargin;
+          followPlan.allocatedMargin = allocation.allocatedMargin;
+          followPlan.notionalValue = allocation.notionalValue;
+          followPlan.adjustedQuantity = allocation.adjustedQuantity;
+          followPlan.allocationRatio = allocation.allocationRatio;
 
-        // 更新交易数量为调整后的数量
-        followPlan.quantity = allocation.adjustedQuantity;
+          // 更新交易数量为调整后的数量
+          followPlan.quantity = allocation.adjustedQuantity;
+        }
       }
     }
   }

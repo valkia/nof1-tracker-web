@@ -62,6 +62,8 @@ export interface FollowPlan {
   allocationRatio?: number; // 分配比例
   releasedMargin?: number; // 平仓释放的资金(用于换仓时复用)
   marginType?: 'ISOLATED' | 'CROSSED'; // 保证金模式: ISOLATED(逐仓) 或 CROSSED(全仓), 默认全仓
+  // 标记是否为直接策略的调整量，避免资金分配时被重新计算
+  isDirectStrategyAdjustment?: boolean;
 }
 
 /**
