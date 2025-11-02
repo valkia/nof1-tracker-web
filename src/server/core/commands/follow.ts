@@ -26,7 +26,8 @@ async function processFollowPlan(
     services.riskManager,
     plan,
     tradingPlan,
-    options.priceTolerance
+    options.priceTolerance,
+    options.totalMargin
   );
 
   printRiskAssessment(riskAssessment);

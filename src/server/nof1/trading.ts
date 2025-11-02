@@ -181,10 +181,11 @@ function computeRiskAssessment(
       followPlan.position.current_price,
       followPlan.symbol,
       options.priceTolerance,
+      options?.totalMargin
     );
   }
 
-  return riskManager.assessRisk(tradingPlan);
+  return riskManager.assessRisk(tradingPlan, options?.totalMargin);
 }
 
 function toSummary(results: PlanExecutionResult[]): ExecutionSummary {

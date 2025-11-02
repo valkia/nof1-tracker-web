@@ -106,7 +106,8 @@ export function assessRiskWithTolerance(
   riskManager: RiskManager,
   plan: FollowPlan,
   tradingPlan: TradingPlan,
-  priceTolerance?: number
+  priceTolerance?: number,
+  userTotalMargin?: number
 ): any {
   if (plan.action === "ENTER" && plan.entryPrice && plan.position?.current_price) {
     return riskManager.assessRiskWithPriceTolerance(
@@ -114,7 +115,8 @@ export function assessRiskWithTolerance(
       plan.entryPrice,
       plan.position.current_price,
       plan.symbol,
-      priceTolerance
+      priceTolerance,
+      userTotalMargin
     );
   }
   return riskManager.assessRisk(tradingPlan);

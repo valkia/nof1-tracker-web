@@ -49,6 +49,15 @@ export class ConfigManager {
   }
 
   /**
+   * 获取合约面值
+   */
+  getContractSize(symbol: string): number {
+    // 移除USDT后缀，如果有的话
+    const baseSymbol = symbol.replace('USDT', '');
+    return this.config.contractSizes[baseSymbol] || 100; // 默认100
+  }
+
+  /**
    * 设置默认价格容忍度
    */
   setPriceTolerance(tolerance: number): void {

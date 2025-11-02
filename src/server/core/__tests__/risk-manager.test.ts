@@ -93,7 +93,8 @@ describe('RiskManager', () => {
         entryPrice,
         currentPrice,
         'BTCUSDT',
-        0.5
+        0.5,
+        10000 // userTotalMargin parameter
       );
 
       expect(riskAssessment.priceTolerance).toBeDefined();
