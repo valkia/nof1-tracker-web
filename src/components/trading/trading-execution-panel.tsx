@@ -14,7 +14,9 @@ interface RecentTrade {
   price: number;
   qty: number;
   realizedPnl: number;
+  cumulativePnl: number;
   commission: number;
+  commissionAsset: string;
   time: number;
   id: number;
 }
@@ -36,18 +38,20 @@ function RecentTradingRecords({ onOpenSettings }: RecentTradingRecordsProps) {
           throw new Error("Failed to fetch recent trades");
         }
         const data = await response.json();
-        // API返回的是points数组，不是trades数组
+        // API返回的是points数组，每个point包含完整的交易信息
         const trades = data.data.points || [];
         // 将points转换为RecentTrade格式
-        const recentTrades = trades.map(trade => ({
-          symbol: data.data.symbol || 'UNKNOWN',
+        const recentTrades = trades.map((trade: any) => ({
+          symbol: trade.symbol,
           side: trade.side,
           price: trade.price,
           qty: trade.quantity,
           realizedPnl: trade.realizedPnl,
-          commission: 0, // API没有返回佣金信息
+          cumulativePnl: trade.cumulativePnl,
+          commission: trade.commission,
+          commissionAsset: trade.commissionAsset,
           time: trade.time,
-          id: trade.orderId // 添加id字段
+          id: trade.orderId
         }));
         setRecentTrades(recentTrades);
       } catch (err) {
@@ -103,7 +107,7 @@ function RecentTradingRecords({ onOpenSettings }: RecentTradingRecordsProps) {
         <div>
           <h3 className="text-base font-semibold text-surface-900">最近交易记录</h3>
           <p className="text-xs text-surface-500">
-            显示最近的交易活动，包括已成交的订单和盈亏情况
+            显示最近的交易活动 · {recentTrades.length} 笔成交
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -112,7 +116,22 @@ function RecentTradingRecords({ onOpenSettings }: RecentTradingRecordsProps) {
         </div>
       </header>
 
-      <div className="mt-4 space-y-3">
+      {/* 表头 */}
+      <div className="mt-4 grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto_auto_auto] items-center gap-3 border-b-2 border-surface-200 px-4 py-2 text-[11px] font-semibold text-surface-600 uppercase tracking-wide">
+        <div>时间</div>
+        <div>交易对</div>
+        <div className="text-right">价格</div>
+        <div className="text-right">数量</div>
+        <div className="text-right">成交额</div>
+        <div className="text-right">已实现</div>
+        <div className="text-right">累计</div>
+        <div className="text-right">佣金</div>
+        <div className="text-right">订单</div>
+        <div className="text-right">状态</div>
+      </div>
+
+      {/* 交易列表 */}
+      <div className="overflow-hidden rounded-xl border border-surface-100 mt-3">
         {recentTrades.slice(0, 10).map((trade, index) => (
           <RecentTradeItem key={`${trade.symbol}-${trade.id}-${index}`} trade={trade} />
         ))}
@@ -131,63 +150,97 @@ function RecentTradingRecords({ onOpenSettings }: RecentTradingRecordsProps) {
 
 function RecentTradeItem({ trade }: { trade: RecentTrade }) {
   const formatTime = (timestamp: number) => {
-    return new Date(timestamp).toLocaleString("zh-CN", {
-      year: "numeric",
+    const date = new Date(timestamp);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    if (isToday) {
+      return date.toLocaleString("zh-CN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    }
+    return date.toLocaleString("zh-CN", {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-      second: "2-digit",
     });
   };
 
-  const formatPnL = (pnl: number) => {
-    if (pnl === 0) return "持平";
-    return `${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}`;
+  const formatNumber = (num: number, decimals: number = 2) => {
+    return num.toFixed(decimals);
   };
 
   const isProfitable = trade.realizedPnl > 0;
   const isLoss = trade.realizedPnl < 0;
+  const isCumulativeProfitable = trade.cumulativePnl > 0;
+  const quoteValue = trade.qty * trade.price; // 成交额
 
   return (
-    <article className="rounded-2xl border border-surface-100 bg-white p-4 shadow-sm animate-in fade-in slide-in-from-right-[20px] duration-500">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-8 w-8 items-center justify-center rounded-full ${trade.side === "BUY" ? "bg-emerald-100" : "bg-rose-100"}`}>
-            <span className={`text-sm font-semibold ${trade.side === "BUY" ? "text-emerald-700" : "text-rose-700"}`}>
-              {trade.side === "BUY" ? "📈" : "📉"}
-            </span>
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-surface-900">{trade.symbol}</span>
-              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                trade.side === "BUY" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
-              }`}>
-                {trade.side === "BUY" ? "买入" : "卖出"}
-              </span>
-            </div>
-            <p className="text-xs text-surface-500">
-              数量: {trade.qty} | 价格: ${trade.price.toFixed(2)}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-col items-end gap-1 text-right">
-          <div className="flex items-center gap-2">
-            <span className={`text-sm font-semibold ${isProfitable ? "text-emerald-600" : isLoss ? "text-rose-600" : "text-surface-600"}`}>
-              {formatPnL(trade.realizedPnl)}
-            </span>
-            {isProfitable && <span className="text-xs text-emerald-600">盈利</span>}
-            {isLoss && <span className="text-xs text-rose-600">亏损</span>}
-            {!isProfitable && !isLoss && <span className="text-xs text-surface-500">持平</span>}
-          </div>
-          <p className="text-xs text-surface-400">
-            佣金: ${trade.commission} | {formatTime(trade.time)}
-          </p>
-        </div>
+    <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto_auto_auto] items-center gap-3 border-b border-surface-100 px-4 py-2.5 text-xs hover:bg-surface-50/50 transition-colors last:border-b-0">
+      {/* 时间 */}
+      <div className="text-surface-500 whitespace-nowrap">
+        {formatTime(trade.time)}
       </div>
-    </article>
+
+      {/* 交易对 + 方向 */}
+      <div className="flex items-center gap-2 min-w-[100px]">
+        <span className="font-medium text-surface-900">{trade.symbol.replace('USDT', '')}</span>
+        <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+          trade.side === "BUY" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+        }`}>
+          {trade.side === "BUY" ? "多" : "空"}
+        </span>
+      </div>
+
+      {/* 价格 */}
+      <div className="text-right text-surface-900 font-medium tabular-nums">
+        ${formatNumber(trade.price, 2)}
+      </div>
+
+      {/* 数量 */}
+      <div className="text-right text-surface-700 tabular-nums">
+        {formatNumber(trade.qty, 4)}
+      </div>
+
+      {/* 成交额 */}
+      <div className="text-right text-surface-700 tabular-nums">
+        ${formatNumber(quoteValue, 2)}
+      </div>
+
+      {/* 已实现盈亏 */}
+      <div className={`text-right font-semibold tabular-nums ${
+        isProfitable ? "text-emerald-600" : isLoss ? "text-rose-600" : "text-surface-600"
+      }`}>
+        {isProfitable ? "+" : ""}{formatNumber(trade.realizedPnl, 2)}
+      </div>
+
+      {/* 累计盈亏 */}
+      <div className={`text-right font-semibold tabular-nums ${
+        isCumulativeProfitable ? "text-emerald-600" : trade.cumulativePnl < 0 ? "text-rose-600" : "text-surface-600"
+      }`}>
+        {isCumulativeProfitable ? "+" : ""}{formatNumber(trade.cumulativePnl, 2)}
+      </div>
+
+      {/* 佣金 */}
+      <div className="text-right text-surface-500 tabular-nums">
+        {formatNumber(trade.commission, 4)}
+      </div>
+
+      {/* 订单ID */}
+      <div className="text-right text-surface-400 font-mono text-[10px]">
+        #{trade.id.toString().slice(-6)}
+      </div>
+
+      {/* 状态指示器 */}
+      <div className="flex justify-end">
+        <div className={`w-1.5 h-1.5 rounded-full ${
+          isProfitable ? "bg-emerald-500" : isLoss ? "bg-rose-500" : "bg-surface-400"
+        }`}></div>
+      </div>
+    </div>
   );
 }
 

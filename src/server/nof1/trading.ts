@@ -97,6 +97,9 @@ export interface TradeHistoryPoint {
   price: number;
   side: "BUY" | "SELL";
   orderId: number;
+  symbol: string;
+  commission: number;
+  commissionAsset: string;
 }
 
 export interface TradeHistoryResult {
@@ -431,6 +434,9 @@ function buildPoints(trades: UserTrade[]): TradeHistoryPoint[] {
         price: toNumber(trade.price),
         side: trade.side,
         orderId: trade.orderId,
+        symbol: trade.symbol,
+        commission: toNumber(trade.commission),
+        commissionAsset: trade.commissionAsset,
       } satisfies TradeHistoryPoint;
     })
     .sort((a, b) => a.time - b.time);
