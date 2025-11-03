@@ -26,6 +26,45 @@ describe('RiskManager', () => {
     expect(riskAssessment.riskScore).toBeGreaterThan(0);
   });
 
+  it('should calculate maxLoss correctly with price', () => {
+    const riskManager = new RiskManager();
+
+    const tradingPlan: TradingPlan = {
+      id: 'test-plan-2',
+      symbol: 'XRPUSDT',
+      side: 'BUY',
+      type: 'MARKET',
+      quantity: 5.0,
+      leverage: 10,
+      timestamp: Date.now()
+    };
+
+    const currentPrice = 2.5; // XRP价格 2.5 USD
+    const riskAssessment = riskManager.assessRisk(tradingPlan, undefined, currentPrice);
+
+    // 提供价格时：maxLoss = quantity * currentPrice = 5 * 2.5 = 12.5 USD
+    expect(riskAssessment.maxLoss).toBeCloseTo(12.5, 2);
+  });
+
+  it('should calculate maxLoss with contractSize estimate without price', () => {
+    const riskManager = new RiskManager();
+
+    const tradingPlan: TradingPlan = {
+      id: 'test-plan-3',
+      symbol: 'XRPUSDT',
+      side: 'BUY',
+      type: 'MARKET',
+      quantity: 5.0,
+      leverage: 10,
+      timestamp: Date.now()
+    };
+
+    const riskAssessment = riskManager.assessRisk(tradingPlan);
+
+    // 没有价格时，使用contractSize估算: quantity * contractSize = 5 * 100 = 500
+    expect(riskAssessment.maxLoss).toBeCloseTo(500.0, 2);
+  });
+
   describe('Price Tolerance', () => {
     it('should calculate price difference correctly', () => {
       const riskManager = new RiskManager();

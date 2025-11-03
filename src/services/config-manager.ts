@@ -17,7 +17,10 @@ export class ConfigManager {
       defaultPriceTolerance: 1.0, // Default 1.0%
       symbolTolerances: {},
       contractSizes: {
-        'BTC': 100,
+        // 注意：这里的值是用作价格的粗略估计（单位：USD），不是实际的合约规格
+        // 用于在没有实时价格时估算保证金和风险
+        // 这是一个设计缺陷，理想情况应该使用实时价格
+        'BTC': 100,    // 近似价格估计值
         'ETH': 100,
         'BNB': 100,
         'XRP': 100,
@@ -49,12 +52,15 @@ export class ConfigManager {
   }
 
   /**
-   * 获取合约面值
+   * 获取合约面值（注意：这实际上是价格的粗略估计）
+   * 用于在没有实时价格时估算保证金和风险
+   * 
+   * ⚠️ 警告：这是一个设计缺陷，应该使用实时价格而不是固定值
    */
   getContractSize(symbol: string): number {
     // 移除USDT后缀，如果有的话
     const baseSymbol = symbol.replace('USDT', '');
-    return this.config.contractSizes[baseSymbol] || 100; // 默认100
+    return this.config.contractSizes[baseSymbol] || 100; // 默认100作为价格估计
   }
 
   /**
@@ -157,6 +163,8 @@ export class ConfigManager {
       defaultPriceTolerance: 1.0,
       symbolTolerances: {},
       contractSizes: {
+        // 注意：这里的值是用作价格的粗略估计（单位：USD），不是实际的合约规格
+        // 用于在没有实时价格时估算保证金和风险
         'BTC': 100,
         'ETH': 100,
         'BNB': 100,

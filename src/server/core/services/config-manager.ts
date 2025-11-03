@@ -17,18 +17,21 @@ export class ConfigManager {
       defaultPriceTolerance: 1.0, // Default 1.0%
       symbolTolerances: {},
       contractSizes: {
-        'BTC': 100,    // BTC合约面值100 USDT
-        'ETH': 100,    // ETH合约面值100 USDT
-        'BNB': 100,    // BNB合约面值100 USDT
-        'XRP': 100,    // XRP合约面值100 USDT
-        'ADA': 100,    // ADA合约面值100 USDT
-        'DOGE': 100,   // DOGE合约面值100 USDT
-        'SOL': 100,    // SOL合约面值100 USDT
-        'AVAX': 100,   // AVAX合约面值100 USDT
-        'MATIC': 100,  // MATIC合约面值100 USDT
-        'DOT': 100,    // DOT合约面值100 USDT
-        'LINK': 100,   // LINK合约面值100 USDT
-        'UNI': 100,    // UNI合约面值100 USDT
+        // 注意：这里的值是用作价格的粗略估计（单位：USD），不是实际的合约规格
+        // 用于在没有实时价格时估算保证金和风险
+        // 这是一个设计缺陷，理想情况应该使用实时价格
+        'BTC': 100,    // 近似价格估计值
+        'ETH': 100,
+        'BNB': 100,
+        'XRP': 100,
+        'ADA': 100,
+        'DOGE': 100,
+        'SOL': 100,
+        'AVAX': 100,
+        'MATIC': 100,
+        'DOT': 100,
+        'LINK': 100,
+        'UNI': 100,
       },
       telegram: {
         enabled: false,
@@ -49,10 +52,15 @@ export class ConfigManager {
   }
 
   /**
-   * 获取合约面值
+   * 获取合约面值（注意：这实际上是价格的粗略估计）
+   * 用于在没有实时价格时估算保证金和风险
+   * 
+   * ⚠️ 警告：这是一个设计缺陷，应该使用实时价格而不是固定值
    */
   getContractSize(symbol: string): number {
-    return this.config.contractSizes[symbol] || 100; // 默认100 USDT
+    // 移除USDT后缀，如果有的话
+    const baseSymbol = symbol.replace('USDT', '');
+    return this.config.contractSizes[baseSymbol] || 100; // 默认100作为价格估计
   }
 
   /**
@@ -184,18 +192,20 @@ export class ConfigManager {
       defaultPriceTolerance: 1.0,
       symbolTolerances: {},
       contractSizes: {
-        'BTC': 100,    // BTC合约面值100 USDT
-        'ETH': 100,    // ETH合约面值100 USDT
-        'BNB': 100,    // BNB合约面值100 USDT
-        'XRP': 100,    // XRP合约面值100 USDT
-        'ADA': 100,    // ADA合约面值100 USDT
-        'DOGE': 100,   // DOGE合约面值100 USDT
-        'SOL': 100,    // SOL合约面值100 USDT
-        'AVAX': 100,   // AVAX合约面值100 USDT
-        'MATIC': 100,  // MATIC合约面值100 USDT
-        'DOT': 100,    // DOT合约面值100 USDT
-        'LINK': 100,   // LINK合约面值100 USDT
-        'UNI': 100,    // UNI合约面值100 USDT
+        // 注意：这里的值是用作价格的粗略估计（单位：USD），不是实际的合约规格
+        // 用于在没有实时价格时估算保证金和风险
+        'BTC': 100,
+        'ETH': 100,
+        'BNB': 100,
+        'XRP': 100,
+        'ADA': 100,
+        'DOGE': 100,
+        'SOL': 100,
+        'AVAX': 100,
+        'MATIC': 100,
+        'DOT': 100,
+        'LINK': 100,
+        'UNI': 100,
       },
       telegram: {
         enabled: false,
